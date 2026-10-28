@@ -1,0 +1,454 @@
+/*
+ * stepfold.js — flat-folding engine for the "分步折叠" mode (pure logic, no DOM; loads in Node).
+ *
+ * A folded state is a stack of flat facets. Each facet:
+ *   { id, poly: [[x,y]..] polygon in ORIGINAL paper coords (y down),
+ *     T: {m:[a,b,c,d], t:[e,f]}  isometry paper → folded plane (x' = a x + c y + e, y' = b x + d y + f),
+ *     layer: number (higher = closer to the viewer) }
+ * det(T) < 0 means the facet shows its BACK side to the viewer.
+ * Creases are recorded in paper coordinates with M/V as seen on the paper FRONT.
+ */
+(function (global) {
+  'use strict';
+  var OG = global.OG;
+  var EPS = 1e-9;
+
+  // ---------------------------------------------------------------- affine helpers
+  var I = function () { return { m: [1, 0, 0, 1], t: [0, 0] }; };
+  function apply(T, p) { var m = T.m; return [m[0] * p[0] + m[2] * p[1] + T.t[0], m[1] * p[0] + m[3] * p[1] + T.t[1]]; }
+  function compose(A, B) { // A ∘ B
+    var a = A.m, b = B.m;
+    return { m: [a[0] * b[0] + a[2] * b[1], a[1] * b[0] + a[3] * b[1], a[0] * b[2] + a[2] * b[3], a[1] * b[2] + a[3] * b[3]], t: apply(A, B.t) };
+  }
+  function invert(T) {
+    var m = T.m, det = m[0] * m[3] - m[1] * m[2];
+    var im = [m[3] / det, -m[1] / det, -m[2] / det, m[0] / det];
+    var it = [-(im[0] * T.t[0] + im[2] * T.t[1]), -(im[1] * T.t[0] + im[3] * T.t[1])];
+    return { m: im, t: it };
+  }
+  function det(T) { return T.m[0] * T.m[3] - T.m[1] * T.m[2]; }
+  function reflection(a, b) {
+    var u = OG.norm(OG.sub(b, a)), ux = u[0], uy = u[1];
+    var m = [2 * ux * ux - 1, 2 * ux * uy, 2 * ux * uy, 2 * uy * uy - 1];
+    var R = { m: m, t: [0, 0] };
+    var ra = apply(R, a);
+    R.t = [a[0] - ra[0], a[1] - ra[1]];
+    return R;
+  }
+  function rotation(deg, c) {
+    var r = deg * Math.PI / 180, co = Math.cos(r), s = Math.sin(r);
+    var R = { m: [co, s, -s, co], t: [0, 0] };
+    var rc = apply(R, c); R.t = [c[0] - rc[0], c[1] - rc[1]];
+    return R;
+  }
+  function mirrorX(cx) { return { m: [-1, 0, 0, 1], t: [2 * cx, 0] }; }
+  function cloneT(T) { return { m: T.m.slice(), t: T.t.slice() }; }
+
+  // ---------------------------------------------------------------- polygon helpers
+  function clipHalf(poly, a, b, keepSign) {
+    // keep part where sign(orient(a,b,p)) == keepSign (or on the line)
+    var out = [], n = poly.length, L = OG.dist(a, b);
+    for (var i = 0; i < n; i++) {
+      var p = poly[i], q = poly[(i + 1) % n];
+      var dp = OG.orient(a, b, p) / L * keepSign, dq = OG.orient(a, b, q) / L * keepSign;
+      if (dp >= -EPS) out.push(p);
+      if ((dp > EPS && dq < -EPS) || (dp < -EPS && dq > EPS)) {
+        var t = dp / (dp - dq);
+        out.push([p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t]);
+      }
+    }
+    return cleanPoly(out);
+  }
+  function cleanPoly(poly) {
+    var out = [];
+    poly.forEach(function (p) { if (!out.length || OG.dist(out[out.length - 1], p) > 1e-9) out.push(p); });
+    if (out.length > 1 && OG.dist(out[0], out[out.length - 1]) < 1e-9) out.pop();
+    // drop collinear points
+    var changed = true;
+    while (changed && out.length > 3) {
+      changed = false;
+      for (var i = 0; i < out.length; i++) {
+        var a = out[(i - 1 + out.length) % out.length], b = out[i], c = out[(i + 1) % out.length];
+        if (Math.abs(OG.orient(a, c, b)) / Math.max(OG.dist(a, c), 1e-12) < 1e-10) { out.splice(i, 1); changed = true; break; }
+      }
+    }
+    return out.length >= 3 && Math.abs(OG.polyArea(out)) > 1e-12 ? out : null;
+  }
+  function sideOf(poly, a, b) { // -1 / 0 (straddles) / +1
+    var L = OG.dist(a, b), pos = false, neg = false;
+    poly.forEach(function (p) { var d = OG.orient(a, b, p) / L; if (d > 1e-7) pos = true; else if (d < -1e-7) neg = true; });
+    return pos && neg ? 0 : pos ? 1 : neg ? -1 : 0;
+  }
+  function insidePoly(p, poly) {
+    return OG.pointInPoly(p, poly) || OG.pointOnPolyBoundary(p, poly, 1e-6);
+  }
+  /** 折叠平面里两个多边形是否接触/重叠（用来把“抓起来的那摞纸”聚成一团） */
+  function polysTouch(A, B) {
+    var i, j, a0, a1, b0, b1;
+    for (i = 0; i < A.length; i++) if (insidePoly(A[i], B)) return true;
+    for (j = 0; j < B.length; j++) if (insidePoly(B[j], A)) return true;
+    function segX(p1, p2, p3, p4) {
+      var d1 = OG.orient(p3, p4, p1), d2 = OG.orient(p3, p4, p2), d3 = OG.orient(p1, p2, p3), d4 = OG.orient(p1, p2, p4);
+      return d1 * d2 < 1e-14 && d3 * d4 < 1e-14;
+    }
+    for (i = 0; i < A.length; i++) {
+      a0 = A[i]; a1 = A[(i + 1) % A.length];
+      for (j = 0; j < B.length; j++) {
+        b0 = B[j]; b1 = B[(j + 1) % B.length];
+        if (segX(a0, a1, b0, b1)) return true;
+        if (OG.pointSegDist(a0, b0, b1) < 1e-6 || OG.pointSegDist(b0, a0, a1) < 1e-6) return true;
+      }
+    }
+    return false;
+  }
+
+  /** 在折叠平面里判断每片纸是否“露在最上面”（没有更高层的纸盖住它） */
+  function exposedFlags(facets) {
+    var polys = facets.map(function (f) { return folded(f); });
+    return facets.map(function (f, i) {
+      var c = [0, 0];
+      polys[i].forEach(function (q) { c[0] += q[0]; c[1] += q[1]; });
+      c[0] /= polys[i].length; c[1] /= polys[i].length;
+      for (var j = 0; j < facets.length; j++) {
+        if (j === i || facets[j].layer <= f.layer) continue;
+        if (insidePoly(c, polys[j])) return false;
+      }
+      return true;
+    });
+  }
+
+  // do two polygons (paper coords) share a boundary segment of positive length?
+  function shareEdge(A, B) {
+    for (var i = 0; i < A.length; i++) {
+      var a0 = A[i], a1 = A[(i + 1) % A.length], la = OG.dist(a0, a1);
+      for (var j = 0; j < B.length; j++) {
+        var b0 = B[j], b1 = B[(j + 1) % B.length];
+        if (Math.abs(OG.orient(a0, a1, b0)) / la > 1e-7 || Math.abs(OG.orient(a0, a1, b1)) / la > 1e-7) continue;
+        var d = OG.sub(a1, a0);
+        var t0 = OG.dot(OG.sub(b0, a0), d) / (la * la), t1 = OG.dot(OG.sub(b1, a0), d) / (la * la);
+        var lo = Math.max(0, Math.min(t0, t1)), hi = Math.min(1, Math.max(t0, t1));
+        if ((hi - lo) * la > 1e-6) return true;
+      }
+    }
+    return false;
+  }
+
+  // ---------------------------------------------------------------- state
+  function create(opts) {
+    opts = opts || {};
+    var w = opts.width || 1, h = opts.height || 1;
+    return { width: w, height: h, nextId: 1, facets: [{ id: 0, poly: [[0, 0], [w, 0], [w, h], [0, h]], T: I(), layer: 0 }], creases: [] };
+  }
+  function clone(s) {
+    return { width: s.width, height: s.height, nextId: s.nextId,
+      facets: s.facets.map(function (f) { return { id: f.id, poly: f.poly.map(function (p) { return p.slice(); }), T: cloneT(f.T), layer: f.layer }; }),
+      creases: s.creases.map(function (c) { return { a: c.a.slice(), b: c.b.slice(), type: c.type, angle: c.angle == null ? 180 : c.angle }; }),
+      snaps: (s.snaps || []).map(function (snap) {
+        return snap.map(function (f) { return { id: f.id, poly: f.poly.map(function (p) { return p.slice(); }), T: cloneT(f.T), layer: f.layer }; });
+      }) };
+  }
+  function compactLayers(s) {
+    var order = s.facets.slice().sort(function (a, b) { return a.layer - b.layer; });
+    var rank = 0, prev = null;
+    order.forEach(function (f) { if (prev !== null && f.layer !== prev) rank++; prev = f.layer; f.layer = rank; });
+  }
+  function folded(f) { return f.poly.map(function (p) { return apply(f.T, p); }); }
+  function isFlipped(f) { return det(f.T) < 0; }
+
+  function bounds(s) {
+    var mn = [Infinity, Infinity], mx = [-Infinity, -Infinity];
+    s.facets.forEach(function (f) { folded(f).forEach(function (p) { mn[0] = Math.min(mn[0], p[0]); mn[1] = Math.min(mn[1], p[1]); mx[0] = Math.max(mx[0], p[0]); mx[1] = Math.max(mx[1], p[1]); }); });
+    return { min: mn, max: mx, center: [(mn[0] + mx[0]) / 2, (mn[1] + mx[1]) / 2], width: mx[0] - mn[0], height: mx[1] - mn[1] };
+  }
+
+  /** Topmost facet id at folded-plane point p (or -1). */
+  function hitFacet(s, p) {
+    var best = -1, bl = -Infinity;
+    s.facets.forEach(function (f) { if (f.layer > bl && insidePoly(p, folded(f))) { bl = f.layer; best = f.id; } });
+    return best;
+  }
+
+  /**
+   * Fold. op = { a, b (fold line, folded-plane coords), side: [x,y] point on the moving side,
+   *              kind: 'valley'|'mountain', scope: 'all'|'top'|'bottom' }
+   * Returns { state, moved:[ids], creases:[...] } or { error }.
+   */
+  function fold(state, op) {
+    var a = op.a, b = op.b;
+    if (!a || !b || OG.dist(a, b) < 1e-6) return { error: '折线太短' };
+    var sidePt = op.side;
+    var sgn = Math.sign(OG.orient(a, b, sidePt));
+    if (!sgn) return { error: '请选择折线的一侧' };
+    var kind = op.kind === 'mountain' ? 'mountain' : 'valley';
+    var s = clone(state);
+    // 记住折叠前的几何，供“折一下再打开（留折痕）”和“打开”使用
+    s.snaps = (state.snaps || []).concat([state.facets.map(function (f) {
+      return { id: f.id, poly: f.poly.map(function (q) { return q.slice(); }), T: cloneT(f.T), layer: f.layer };
+    })]);
+    // 1. split every facet into stationary / moving pieces (virtually)
+    var pieces = []; // {parent, poly(paper), moving:bool}
+    s.facets.forEach(function (f) {
+      var P = folded(f), sd = sideOf(P, a, b);
+      if (sd === sgn) pieces.push({ parent: f, poly: f.poly, moving: true, whole: true });
+      else if (sd === -sgn || sd === 0 && false) pieces.push({ parent: f, poly: f.poly, moving: false, whole: true });
+      else if (sd === 0) {
+        var inv = invert(f.T), pa = apply(inv, a), pb = apply(inv, b);
+        // orientation of the line flips in paper coords when the facet is mirrored
+        var keepMove = sgn * (isFlipped(f) ? -1 : 1);
+        var mv = clipHalf(f.poly, pa, pb, keepMove), st = clipHalf(f.poly, pa, pb, -keepMove);
+        if (mv && st) {
+          pieces.push({ parent: f, poly: mv, moving: true, whole: false });
+          pieces.push({ parent: f, poly: st, moving: false, whole: false });
+        } else pieces.push({ parent: f, poly: f.poly, moving: !!mv, whole: true });
+      }
+    });
+    // 2. choose the moving set
+    var movingPieces = pieces.filter(function (p) { return p.moving; });
+    if (!movingPieces.length) return { error: '折线这一侧没有纸' };
+    if (op.scope === 'topSheet') {
+      // 「仅最上层」：模拟真手只捏起最上面那一层往下折——
+      //  1) 起点 = 点击处最上面的那片纸（按点到多边形的距离找，点在边上也算）；
+      //  2) 把与它沿真实折痕（纸面共享边）连着、且在折线这一侧的纸片一起带上；
+      //  3) 物理闭包：被带上的纸片如果上面（谷折）/下面（山折）还压着别的层，
+      //     那些层挡在翻转路径上，也必须一起翻，否则就得穿过去——反复 2)3) 直到不再变化。
+      var planePoly = {}, planeArea = {};
+      s.facets.forEach(function (f) { planePoly[f.id] = folded(f); planeArea[f.id] = Math.abs(OG.polyArea(planePoly[f.id])); });
+      function polyDist(p, P) {
+        if (OG.pointInPoly(p, P)) return 0;
+        var d = Infinity;
+        for (var i = 0; i < P.length; i++) d = Math.min(d, OG.pointSegDist(p, P[i], P[(i + 1) % P.length]));
+        return d;
+      }
+      function strictlyInside(p, P) { return OG.pointInPoly(p, P) && !OG.pointOnPolyBoundary(p, P, 1e-7); }
+      function overlap(A, B) {
+        // 两片纸在平面里有正面积重叠（只是边挨着不算）
+        function samples(P) {
+          var c = OG.polyCentroid ? OG.polyCentroid(P) : P.reduce(function (s2, q) { return [s2[0] + q[0] / P.length, s2[1] + q[1] / P.length]; }, [0, 0]);
+          var out = [c];
+          P.forEach(function (q) { out.push(OG.lerp(c, q, 0.9)); });
+          for (var i = 0; i < P.length; i++) out.push(OG.lerp(c, OG.lerp(P[i], P[(i + 1) % P.length], 0.5), 0.9));
+          return out;
+        }
+        var sa = samples(A), sb = samples(B), i;
+        for (i = 0; i < sa.length; i++) if (strictlyInside(sa[i], B)) return true;
+        for (i = 0; i < sb.length; i++) if (strictlyInside(sb[i], A)) return true;
+        return false;
+      }
+      // 1) 起点
+      var minD = Infinity;
+      movingPieces.forEach(function (p) { minD = Math.min(minD, polyDist(sidePt, planePoly[p.parent.id])); });
+      var seed = null;
+      movingPieces.forEach(function (p) {
+        if (polyDist(sidePt, planePoly[p.parent.id]) > minD + 1e-3) return;
+        if (!seed || p.parent.layer > seed.parent.layer) seed = p;
+      });
+      if (!seed) return { error: '点击位置没有可翻折的纸层' };
+      var sel = [seed];
+      var blocksAbove = kind === 'valley';           // 谷折：翻片往上翻，压在它上面的层会挡路
+      var changed = true;
+      while (changed) {
+        changed = false;
+        // 2) 沿真实折痕连通
+        var queue = sel.slice();
+        while (queue.length) {
+          var cur = queue.shift();
+          movingPieces.forEach(function (p) {
+            if (sel.indexOf(p) >= 0) return;
+            if (!shareEdge(cur.poly, p.poly)) return;
+            sel.push(p); queue.push(p); changed = true;
+          });
+        }
+        // 3) 挡路的层一起翻
+        movingPieces.forEach(function (p) {
+          if (sel.indexOf(p) >= 0) return;
+          var P = planePoly[p.parent.id];
+          for (var k = 0; k < sel.length; k++) {
+            var q = sel[k];
+            var inWay = blocksAbove ? p.parent.layer > q.parent.layer : p.parent.layer < q.parent.layer;
+            if (inWay && overlap(P, planePoly[q.parent.id])) { sel.push(p); changed = true; return; }
+          }
+        });
+      }
+      movingPieces.forEach(function (p) { p.selected = sel.indexOf(p) >= 0; });
+    } else if (op.scope === 'top' || op.scope === 'bottom') {
+      // start from the topmost (or bottom-most) moving piece under the pick point, then grow through attached paper
+      var start = null, top = op.scope === 'top', bl = top ? -Infinity : Infinity;
+      movingPieces.forEach(function (p) {
+        var P = p.poly.map(function (q) { return apply(p.parent.T, q); });
+        if ((top ? p.parent.layer > bl : p.parent.layer < bl) && insidePoly(sidePt, P)) { bl = p.parent.layer; start = p; }
+      });
+      if (!start) return { error: '点击位置没有可翻折的纸层' };
+      // flood fill through shared paper edges among moving pieces
+      var set = [start], queue = [start];
+      while (queue.length) {
+        var cur = queue.shift();
+        movingPieces.forEach(function (p) {
+          if (set.indexOf(p) >= 0) return;
+          if (shareEdge(cur.poly, p.poly)) { set.push(p); queue.push(p); }
+        });
+      }
+      movingPieces.forEach(function (p) { p.selected = set.indexOf(p) >= 0; });
+    } else movingPieces.forEach(function (p) { p.selected = true; });
+    // stationary pieces connected to selected moving pieces via paper edges NOT on the fold line would tear the paper;
+    // for scope 'all' this cannot happen. For 'top' the flood fill already includes everything attached on the moving side.
+
+    // 3. rebuild the facet list
+    var R = reflection(a, b);
+    var out = [], moved = [], creases = [];
+    var maxL = -Infinity, minL = Infinity, mvMax = -Infinity, mvMin = Infinity;
+    s.facets.forEach(function (f) { maxL = Math.max(maxL, f.layer); minL = Math.min(minL, f.layer); });
+    s.facets.forEach(function (f) {
+      var mine = pieces.filter(function (p) { return p.parent === f; });
+      var mvp = mine.filter(function (p) { return p.moving && p.selected; })[0];
+      if (!mvp) { out.push(f); return; }                         // untouched (whole, or not selected)
+      mvMax = Math.max(mvMax, f.layer); mvMin = Math.min(mvMin, f.layer);
+      if (mvp.whole) { f.moving = true; out.push(f); moved.push(f.id); return; }
+      var stp = mine.filter(function (p) { return !p.moving; })[0];
+      var nf = { id: s.nextId++, poly: mvp.poly, T: cloneT(f.T), layer: f.layer, moving: true };
+      out.push({ id: f.id, poly: stp.poly, T: f.T, layer: f.layer });
+      out.push(nf); moved.push(nf.id);
+    });
+    if (!moved.length) return { error: '没有可翻折的纸层' };
+    // 记录折痕（纸面坐标）：所有被折动的纸片，只要某条边正好落在折线上，就是一条新折痕。
+    // 这样连“沿已有折痕再折一次”的情况也能记到（那种情况纸片没有被切开，只会整片移动）。
+    pieces.forEach(function (p) {
+      if (!p.moving || !p.selected) return;
+      var f = p.parent, inv = invert(f.T), pa = apply(inv, a), pb = apply(inv, b);
+      var L = OG.dist(pa, pb);
+      if (L < 1e-9) return;
+      var seg = p.poly.filter(function (q) { return Math.abs(OG.orient(pa, pb, q)) / L < 1e-7; });
+      if (seg.length < 2) return;
+      var d = OG.sub(pb, pa);
+      seg.sort(function (u, v) { return OG.dot(OG.sub(u, pa), d) - OG.dot(OG.sub(v, pa), d); });
+      var A2 = seg[0].slice(), B2 = seg[seg.length - 1].slice();
+      // 同一条折痕只记一次（可能被相邻两片各报一次）
+      var dup = creases.some(function (c) {
+        return (Math.abs(c.a[0] - A2[0]) < 1e-7 && Math.abs(c.a[1] - A2[1]) < 1e-7 && Math.abs(c.b[0] - B2[0]) < 1e-7 && Math.abs(c.b[1] - B2[1]) < 1e-7) ||
+               (Math.abs(c.a[0] - B2[0]) < 1e-7 && Math.abs(c.a[1] - B2[1]) < 1e-7 && Math.abs(c.b[0] - A2[0]) < 1e-7 && Math.abs(c.b[1] - A2[1]) < 1e-7);
+      });
+      var valleyOnFront = (kind === 'valley') !== isFlipped(f);
+      if (!dup) creases.push({ a: A2, b: B2, type: valleyOnFront ? 'V' : 'M', angle: 180 });
+    });
+    // 4. reflect & re-layer moving facets
+    out.forEach(function (f) {
+      if (!f.moving) return;
+      f.T = compose(R, f.T);
+      if (kind === 'valley') f.layer = maxL + 1 + (mvMax - f.layer);
+      else f.layer = minL - 1 - (f.layer - mvMin);
+      delete f.moving;
+    });
+    s.facets = out;
+    s.creases = s.creases.concat(creases);
+    compactLayers(s);
+    return { state: s, moved: moved, creases: creases };
+  }
+
+  /** 折一下再打开：留下折痕，纸回到原样（对应图纸里的「折出折痕后展开」） */
+  function crease(state, op) {
+    var r = fold(state, op);
+    if (r.error) return r;
+    var s = r.state;
+    // 折完马上打开：这条折痕在成品里是 0°（只是压了痕，没有折起来）
+    s.creases = s.creases.map(function (c) {
+      if (c.angle === 180 && r.creases.some(function (rc) {
+        return (Math.abs(rc.a[0] - c.a[0]) < 1e-9 && Math.abs(rc.a[1] - c.a[1]) < 1e-9 && Math.abs(rc.b[0] - c.b[0]) < 1e-9 && Math.abs(rc.b[1] - c.b[1]) < 1e-9) ||
+               (Math.abs(rc.a[0] - c.b[0]) < 1e-9 && Math.abs(rc.a[1] - c.b[1]) < 1e-9 && Math.abs(rc.b[0] - c.a[0]) < 1e-9 && Math.abs(rc.b[1] - c.a[1]) < 1e-9);
+      })) return { a: c.a, b: c.b, type: c.type, angle: 0 };
+      return c;
+    });
+    var snap = s.snaps.pop();
+    s.facets = snap;                 // 几何复原，折痕保留
+    return { state: s, creases: r.creases, moved: [] };
+  }
+
+  /** 打开：把最近一次折叠的几何还原（折痕保留），对应图纸里的「ひらく / 展开」 */
+  function unfold(state) {
+    if (!state.snaps || !state.snaps.length) return { error: '已经没有可以打开的折了' };
+    var s = clone(state);
+    s.facets = s.snaps.pop();
+    s.creases = s.creases.map(function (c) { return { a: c.a, b: c.b, type: c.type, angle: c.angle == null ? 0 : c.angle }; });
+    return { state: s };
+  }
+
+  function flip(state) {
+    var s = clone(state), c = bounds(s).center, M = mirrorX(c[0]);
+    s.snaps = [];                    // 折叠平面一变，快照就失效
+    s.facets.forEach(function (f) { f.T = compose(M, f.T); f.layer = -f.layer; });
+    compactLayers(s);
+    return s;
+  }
+  function rotate(state, deg) {
+    var s = clone(state), R = rotation(deg, bounds(s).center);
+    s.snaps = [];
+    s.facets.forEach(function (f) { f.T = compose(R, f.T); });
+    return s;
+  }
+  function applyOp(state, op) {
+    if (!op) return { error: '无效操作' };
+    if (op.type === 'flip') return { state: flip(state) };
+    if (op.type === 'rotate') return { state: rotate(state, op.deg || 0) };
+    if (op.type === 'crease') return crease(state, op);
+    if (op.type === 'unfold') return unfold(state);
+    return fold(state, op);
+  }
+
+  // ---------------------------------------------------------------- fold-line constructions
+  function lineFromPoints(p, q) { return { a: p.slice(), b: q.slice() }; }
+  function pointToPoint(p, q) {
+    var m = OG.lerp(p, q, 0.5), d = OG.perp(OG.sub(q, p));
+    return { a: OG.sub(m, d), b: OG.add(m, d) };
+  }
+  function edgeToEdge(e1, e2) {
+    var d1 = OG.norm(OG.sub(e1[1], e1[0])), d2 = OG.norm(OG.sub(e2[1], e2[0]));
+    var X = OG.lineIntersect(e1[0], d1, e2[0], d2);
+    if (!X) { // parallel: midline
+      var off = OG.sub(e2[0], e1[0]), n = OG.perp(d1), dd = OG.dot(off, n);
+      var p = OG.add(e1[0], OG.scale(n, dd / 2));
+      return { a: p, b: OG.add(p, d1) };
+    }
+    // orient each direction from X towards the edge's midpoint so we bisect the angle "between" the edges
+    var m1 = OG.lerp(e1[0], e1[1], 0.5), m2 = OG.lerp(e2[0], e2[1], 0.5);
+    if (OG.dot(OG.sub(m1, X), d1) < 0) d1 = OG.scale(d1, -1);
+    if (OG.dot(OG.sub(m2, X), d2) < 0) d2 = OG.scale(d2, -1);
+    var bis = OG.add(d1, d2);
+    if (OG.len(bis) < 1e-9) bis = OG.perp(d1);
+    return { a: X, b: OG.add(X, OG.norm(bis)) };
+  }
+
+  // ---------------------------------------------------------------- queries
+  function visibleFaces(s) {
+    return s.facets.slice().sort(function (a, b) { return a.layer - b.layer; }).map(function (f) {
+      return { id: f.id, poly: folded(f), paper: f.poly, flipped: isFlipped(f), layer: f.layer, T: f.T };
+    });
+  }
+  function outlineEdges(s) {
+    var edges = [];
+    s.facets.forEach(function (f) { var P = folded(f); for (var i = 0; i < P.length; i++) edges.push([P[i], P[(i + 1) % P.length]]); });
+    return edges;
+  }
+  function snapPoints(s) {
+    var pts = [];
+    function add(p, kind) { for (var i = 0; i < pts.length; i++) if (OG.dist(pts[i].p, p) < 1e-6) return; pts.push({ p: p, kind: kind }); }
+    outlineEdges(s).forEach(function (e) { add(e[0], 'vertex'); });
+    outlineEdges(s).forEach(function (e) { if (OG.dist(e[0], e[1]) > 0.02) add(OG.lerp(e[0], e[1], 0.5), 'midpoint'); });
+    var b = bounds(s); add(b.center, 'center');
+    return pts;
+  }
+  function totalArea(s) { var A = 0; s.facets.forEach(function (f) { A += Math.abs(OG.polyArea(f.poly)); }); return A; }
+  function creasePattern(s, name) {
+    var w = s.width, h = s.height;
+    var lines = [{ a: [0, 0], b: [w, 0], type: 'B' }, { a: [w, 0], b: [w, h], type: 'B' }, { a: [w, h], b: [0, h], type: 'B' }, { a: [0, h], b: [0, 0], type: 'B' }];
+    s.creases.forEach(function (c) { lines.push({ a: c.a.slice(), b: c.b.slice(), type: c.type, angle: c.angle == null ? 180 : c.angle }); });
+    return { name: name || '分步折叠折痕', description: '由分步折叠生成的折痕图', width: w, height: h, lines: lines };
+  }
+  function serialize(s) { return JSON.stringify(s); }
+  function deserialize(str) { var s = typeof str === 'string' ? JSON.parse(str) : str; return clone(s); }
+
+  global.StepFold = {
+    create: create, clone: clone, fold: fold, crease: crease, unfold: unfold, flip: flip, rotate: rotate, applyOp: applyOp, bounds: bounds, hitFacet: hitFacet,
+    lineFromPoints: lineFromPoints, pointToPoint: pointToPoint, edgeToEdge: edgeToEdge,
+    visibleFaces: visibleFaces, outlineEdges: outlineEdges, snapPoints: snapPoints, totalArea: totalArea,
+    creasePattern: creasePattern, serialize: serialize, deserialize: deserialize,
+    affine: { apply: apply, compose: compose, invert: invert, det: det, reflection: reflection }
+  };
+})(typeof window !== 'undefined' ? window : globalThis);

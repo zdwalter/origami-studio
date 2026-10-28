@@ -1,0 +1,17 @@
+# macOS
+.DS_Store
+
+# 依赖 / 本地环境
+node_modules/
+.venv/
+.tools/
+*.log
+
+# 临时产物
+/tmp/
+*.tmp
+*.bak
+
+# 编辑器
+.vscode/
+.idea/

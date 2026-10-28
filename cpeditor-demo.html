@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>折痕图编辑器 · 演示</title>
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;font-size:13px;color:#22262c;background:#f3f1ec}
+.app{display:grid;grid-template-rows:auto 1fr auto;height:100%}
+.bar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:8px 12px;background:#fbfaf7;border-bottom:1px solid #e2ded5}
+.grp{display:flex;gap:3px;padding-right:8px;margin-right:2px;border-right:1px solid #e5e1d8;align-items:center}
+.grp:last-child{border:0}
+button,select,input{font:inherit}
+button{border:1px solid #dcd8ce;background:#fff;border-radius:6px;padding:5px 9px;cursor:pointer;color:#30343a}
+button:hover{border-color:#b9b3a6}
+button.on{background:#2d4a42;border-color:#2d4a42;color:#fff}
+button:disabled{opacity:.4;cursor:default}
+.sw{display:inline-block;width:16px;border-top:2px solid;vertical-align:middle;margin-right:4px}
+label{display:inline-flex;gap:3px;align-items:center;color:#555}
+input[type=number]{width:56px;padding:3px 4px;border:1px solid #dcd8ce;border-radius:5px}
+main{display:grid;grid-template-columns:1fr 230px;min-height:0}
+#cv{width:100%;height:100%;display:block}
+aside{border-left:1px solid #e2ded5;background:#fbfaf7;padding:12px;overflow:auto}
+aside h4{margin:12px 0 6px;font-size:12px;color:#6b665b}
+aside h4:first-child{margin-top:0}
+#info,#val{font-size:12px;line-height:1.7;color:#444;white-space:pre-wrap}
+.status{padding:6px 12px;font-size:12px;color:#555;background:#fbfaf7;border-top:1px solid #e2ded5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="bar">
+    <div class="grp" id="tools"></div>
+    <div class="grp" id="types"></div>
+    <div class="grp">
+      <label>角度<input type="number" id="ang" value="180" min="0" max="180"></label>
+      <label>网格<select id="grid"><option value="0">关</option><option value="4">4</option><option value="8" selected>8</option><option value="16">16</option><option value="32">32</option></select></label>
+      <select id="gtype"><option value="square">方格</option><option value="triangle">三角</option></select>
+    </div>
+    <div class="grp">
+      <button id="undo" title="Ctrl+Z">撤销</button><button id="redo" title="Shift+Ctrl+Z">重做</button>
+      <button id="flip">翻转山谷</button><button id="inv">全部反转</button><button id="del">删除</button><button id="clr">清空</button>
+      <button id="fit">适应</button><button id="validate">检查平折</button><button id="png">PNG</button>
+    </div>
+    <div class="grp">
+      <label><input type="checkbox" id="labels">坐标</label>
+      <label><input type="checkbox" id="angles" checked>角度</label>
+    </div>
+  </div>
+  <main>
+    <canvas id="cv"></canvas>
+    <aside>
+      <h4>名称（测试输入框，按键不应影响画布）</h4>
+      <input id="name" value="演示折痕图" style="width:100%;padding:4px;border:1px solid #dcd8ce;border-radius:5px">
+      <h4>文档</h4><div id="info"></div>
+      <h4>选择</h4><div id="selinfo">—</div>
+      <h4>平折检查</h4><div id="val">—</div>
+    </aside>
+  </main>
+  <div class="status" id="status">就绪</div>
+</div>
+<script src="js/geom.js"></script>
+<script src="js/cp.js"></script>
+<script src="js/cpeditor.js"></script>
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var changes = 0;
+  window.__changes = [];
+  var ed = new CPEditor($('cv'), {
+    onChange: function (doc) {
+      changes++; window.__changes.push(doc.lines.length);
+      info(doc); hist();
+      if (window.CP && valOn) { var r = CP.validate(doc); ed.setValidation(r); $('val').textContent = r.summary; }
+    },
+    onSelectionChange: function (s) {
+      var t = Object.keys(s.types).filter(function (k) { return s.types[k]; }).map(function (k) { return CPEditor.NAMES[k] + '×' + s.types[k]; });
+      $('selinfo').textContent = s.count ? s.count + ' 条：' + t.join('，') : '—';
+    },
+    onStatus: function (t) { $('status').textContent = t; },
+    onToolChange: function () { paintTools(); },
+    onLineTypeChange: function () { paintTypes(); },
+    onHistoryChange: function () { hist(); }
+  });
+  window.ed = ed;
+  var valOn = false;
+  function info(doc) {
+    var c = { M: 0, V: 0, F: 0, U: 0, C: 0, B: 0 };
+    doc.lines.forEach(function (l) { c[l.type]++; });
+    $('info').textContent = '线段 ' + doc.lines.length + '\n山 ' + c.M + '  谷 ' + c.V + '  平 ' + c.F + '\n未指定 ' + c.U + '  剪切 ' + c.C + '  边界 ' + c.B;
+  }
+  function hist() { $('undo').disabled = !ed.canUndo(); $('redo').disabled = !ed.canRedo(); }
+  var tb = $('tools');
+  CPEditor.TOOLS.forEach(function (t) {
+    var b = document.createElement('button'); b.textContent = CPEditor.TOOL_NAMES[t]; b.dataset.tool = t;
+    b.onclick = function () { ed.setTool(t); }; tb.appendChild(b);
+  });
+  function paintTools() { [].forEach.call(tb.children, function (b) { b.classList.toggle('on', b.dataset.tool === ed.getTool()); }); }
+  var ty = $('types');
+  CPEditor.TYPES.forEach(function (t, i) {
+    var b = document.createElement('button'); b.dataset.type = t; b.title = '快捷键 ' + (i + 1);
+    b.innerHTML = '<span class="sw" style="border-color:' + CPEditor.COLORS[t] + '"></span>' + CPEditor.NAMES[t];
+    b.onclick = function () { ed.setLineType(t); }; ty.appendChild(b);
+  });
+  function paintTypes() { [].forEach.call(ty.children, function (b) { b.classList.toggle('on', b.dataset.type === ed.getLineType()); }); }
+  $('ang').onchange = function () { ed.setDefaultAngle(+this.value); ed.setSelectedAngle(+this.value); };
+  $('grid').onchange = $('gtype').onchange = function () { ed.setGrid({ divisions: +$('grid').value, type: $('gtype').value }); };
+  $('undo').onclick = function () { ed.undo(); };
+  $('redo').onclick = function () { ed.redo(); };
+  $('flip').onclick = function () { ed.flipSelectedMV(); };
+  $('inv').onclick = function () { ed.invertAllMV(); };
+  $('del').onclick = function () { ed.deleteSelected(); };
+  $('clr').onclick = function () { ed.clear(); };
+  $('fit').onclick = function () { ed.fit(); };
+  $('labels').onchange = function () { ed.setShowLabels(this.checked); };
+  $('angles').onchange = function () { ed.setShowAngles(this.checked); };
+  $('validate').onclick = function () {
+    valOn = !valOn; this.classList.toggle('on', valOn);
+    if (valOn && window.CP) { var r = CP.validate(ed.getDoc()); ed.setValidation(r); $('val').textContent = r.summary; }
+    else { ed.setValidation(null); $('val').textContent = '—'; }
+  };
+  $('png').onclick = function () { var a = document.createElement('a'); a.href = ed.exportPNG(); a.download = 'cp.png'; a.click(); };
+  ed.setDoc({ name: '演示', width: 1, height: 1, lines: [] }, { resetHistory: true });
+  paintTools(); paintTypes(); info(ed.getDoc()); hist();
+})();
+</script>
+</body>
+</html>

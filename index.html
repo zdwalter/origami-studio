@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>纸境 · 折纸仿真平台</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpath d='M8 52 32 8l24 44z' fill='%23e8553d'/%3E%3Cpath d='M32 8v44L8 52z' fill='%23b8402c'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<div id="app" class="app" data-mode="sim">
+  <!-- ============================================================ header -->
+  <header class="topbar">
+    <div class="brand">
+      <svg class="logo" viewBox="0 0 64 64" aria-hidden="true"><path d="M8 52 32 8l24 44z" fill="var(--accent)"/><path d="M32 8v44L8 52z" fill="var(--accent-dark)"/><path d="M32 8 56 52H32z" fill="var(--accent-light)"/></svg>
+      <div class="brand-text"><strong>纸境</strong><span>折纸仿真平台</span></div>
+    </div>
+    <nav class="modes" role="tablist" aria-label="工作模式">
+      <button class="mode-tab active" data-mode="sim" role="tab" aria-selected="true"><svg viewBox="0 0 24 24"><path d="M12 2 3 7v10l9 5 9-5V7z M3 7l9 5 9-5 M12 12v10"/></svg>3D 仿真</button>
+      <button class="mode-tab" data-mode="design" role="tab" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M3 3h18v18H3z M3 3l18 18 M21 3 3 21"/></svg>折痕设计</button>
+      <button class="mode-tab" data-mode="step" role="tab" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M4 4h16v16H4z M4 20 20 4"/><path d="M20 4v16H4" opacity=".4"/></svg>分步折叠</button>
+    </nav>
+    <div class="top-actions">
+      <button class="btn ghost" id="btnImport" title="导入 SVG / FOLD / 项目文件 (Ctrl+O)"><svg viewBox="0 0 24 24"><path d="M12 3v12 M7 10l5 5 5-5 M4 17v3h16v-3"/></svg><span>导入</span></button>
+      <div class="dropdown">
+        <button class="btn ghost" id="btnExport" aria-haspopup="true" title="导出"><svg viewBox="0 0 24 24"><path d="M12 15V3 M7 8l5-5 5 5 M4 17v3h16v-3"/></svg><span>导出</span></button>
+        <div class="menu" id="exportMenu" hidden>
+          <div class="menu-title">折痕图</div>
+          <button data-export="svg">SVG 折痕图（.svg）</button>
+          <button data-export="fold">FOLD 折痕图（.fold）</button>
+          <button data-export="cp-png">折痕图 PNG</button>
+          <div class="menu-title">折叠形态</div>
+          <button data-export="fold3d">FOLD 3D 形态（.fold）</button>
+          <button data-export="obj">OBJ 模型（.obj）</button>
+          <button data-export="stl">STL 模型（.stl）</button>
+          <button data-export="png">3D 视图截图（.png）</button>
+          <div class="menu-title">项目</div>
+          <button data-export="project">项目文件（.json）</button>
+          <button data-export="link">复制分享链接</button>
+        </div>
+      </div>
+      <button class="btn ghost" id="btnSaveLib" title="保存到我的作品 (Ctrl+S)"><svg viewBox="0 0 24 24"><path d="M5 3h11l3 3v15H5z M8 3v6h8V3 M8 21v-7h8v7"/></svg><span>保存</span></button>
+      <button class="btn icon ghost" id="btnTheme" title="切换深色/浅色"><svg viewBox="0 0 24 24"><path d="M21 13A9 9 0 1 1 11 3a7 7 0 0 0 10 10z"/></svg></button>
+      <button class="btn icon ghost" id="btnHelp" title="帮助 (?)"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1 .9-1 1.7v.5 M12 17h.01"/></svg></button>
+    </div>
+  </header>
+
+  <main class="workspace">
+    <!-- ============================================================ left: library -->
+    <aside class="panel left" id="leftPanel">
+      <div class="panel-tabs">
+        <button class="ptab active" data-ptab="lib">图案库</button>
+        <button class="ptab" data-ptab="mine">我的作品 <span class="badge" id="mineCount">0</span></button>
+      </div>
+      <div class="ptab-body" data-ptab-body="lib">
+        <div class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg><input id="libSearch" type="search" placeholder="搜索图案…" autocomplete="off"></div>
+        <div class="chips" id="libCats"></div>
+        <div class="lib-list" id="libList"></div>
+      </div>
+      <div class="ptab-body" data-ptab-body="mine" hidden>
+        <p class="muted small">作品保存在本浏览器（localStorage）。可在“导出 → 项目文件”备份。</p>
+        <div class="lib-list" id="mineList"></div>
+      </div>
+    </aside>
+
+    <!-- ============================================================ centre -->
+    <section class="stage">
+      <!-- design editor (visible in design mode) -->
+      <div class="design-area" id="designArea">
+        <div class="toolbar" id="designToolbar">
+          <div class="tgroup" id="toolGroup">
+            <button class="tbtn active" data-tool="line" title="画线 (L)"><svg viewBox="0 0 24 24"><path d="M4 20 20 4"/><circle cx="4" cy="20" r="2"/><circle cx="20" cy="4" r="2"/></svg><span>画线</span></button>
+            <button class="tbtn" data-tool="select" title="选择 / 框选 / 拖动端点 (S)"><svg viewBox="0 0 24 24"><path d="M5 3l14 8-6 2-2 6z"/></svg><span>选择</span></button>
+            <button class="tbtn" data-tool="erase" title="擦除 (E)"><svg viewBox="0 0 24 24"><path d="M16 3l5 5-11 11H5v-5z M4 21h16"/></svg><span>擦除</span></button>
+            <button class="tbtn" data-tool="type" title="点击线段改为当前类型 (T)"><svg viewBox="0 0 24 24"><path d="M4 20l4-1L19 8l-3-3L5 16z M14 7l3 3"/></svg><span>改类型</span></button>
+            <button class="tbtn" data-tool="bisector" title="角平分线：依次点三点（或两条线）(B)"><svg viewBox="0 0 24 24"><path d="M4 20h16 M4 20 18 6 M4 20l16-6" /></svg><span>角平分</span></button>
+            <button class="tbtn" data-tool="pbisect" title="中垂线：点两点 (P)"><svg viewBox="0 0 24 24"><path d="M4 16h16 M12 4v16"/><circle cx="6" cy="16" r="1.6"/><circle cx="18" cy="16" r="1.6"/></svg><span>中垂线</span></button>
+            <button class="tbtn" data-tool="perp" title="垂线：点 + 线"><svg viewBox="0 0 24 24"><path d="M3 18h18 M12 18V4 M12 14h4v4"/></svg><span>垂线</span></button>
+            <button class="tbtn" data-tool="ray" title="射线：从点出发延长至遇到折痕/边界 (R)"><svg viewBox="0 0 24 24"><circle cx="5" cy="19" r="2"/><path d="M6.5 17.5 20 4 M14 4h6v6"/></svg><span>射线</span></button>
+            <button class="tbtn" data-tool="mirror" title="镜像所选线段"><svg viewBox="0 0 24 24"><path d="M12 3v18 M9 7 4 17h5z M15 7l5 10h-5z"/></svg><span>镜像</span></button>
+            <button class="tbtn" data-tool="pan" title="平移 (空格+拖动)"><svg viewBox="0 0 24 24"><path d="M12 3v18 M3 12h18 M12 3l-3 3 M12 3l3 3 M12 21l-3-3 M12 21l3-3 M3 12l3-3 M3 12l3 3 M21 12l-3-3 M21 12l-3 3"/></svg><span>平移</span></button>
+          </div>
+          <div class="tsep"></div>
+          <div class="tgroup linetypes" id="typeGroup">
+            <button class="ltype active" data-type="M" title="山折 (M / 1)"><i style="--c:var(--c-m)" class="dashdot"></i>山</button>
+            <button class="ltype" data-type="V" title="谷折 (V / 2)"><i style="--c:var(--c-v)" class="dashed"></i>谷</button>
+            <button class="ltype" data-type="F" title="平面线 (F / 3)"><i style="--c:var(--c-f)"></i>平</button>
+            <button class="ltype" data-type="U" title="未指定 / 自由铰链 (U / 4)"><i style="--c:var(--c-u)" class="dotted"></i>自由</button>
+            <button class="ltype" data-type="C" title="剪切 (C / 5)"><i style="--c:var(--c-c)"></i>剪</button>
+          </div>
+          <label class="angle-field" title="新线条的目标折角（|角度|）">折角 <input type="number" id="lineAngle" min="0" max="180" step="1" value="180">°</label>
+          <div class="tsep"></div>
+          <div class="tgroup">
+            <button class="tbtn icon" id="edUndo" title="撤销 (Ctrl+Z)"><svg viewBox="0 0 24 24"><path d="M9 14 4 9l5-5 M4 9h11a5 5 0 0 1 0 10h-3"/></svg></button>
+            <button class="tbtn icon" id="edRedo" title="重做 (Ctrl+Shift+Z)"><svg viewBox="0 0 24 24"><path d="m15 14 5-5-5-5 M20 9H9a5 5 0 0 0 0 10h3"/></svg></button>
+            <div class="dropdown">
+              <button class="tbtn" id="edMore" title="更多编辑操作"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg><span>更多</span></button>
+              <div class="menu" id="edMenu" hidden>
+                <button data-ed="selectAll">全选 <kbd>Ctrl+A</kbd></button>
+                <button data-ed="deleteSelected">删除所选 <kbd>Del</kbd></button>
+                <button data-ed="flipSelected">所选山谷互换</button>
+                <button data-ed="invertAll">全部山谷互换</button>
+                <button data-ed="selAngle">设置所选折角…</button>
+                <div class="menu-title">纸张</div>
+                <button data-ed="newSquare">新建正方形纸</button>
+                <button data-ed="newRect">新建 A4 比例纸（1:√2）</button>
+                <button data-ed="newCustom">自定义纸张比例…</button>
+                <button data-ed="clear">清空折痕（保留边界）</button>
+              </div>
+            </div>
+          </div>
+          <div class="tsep"></div>
+          <label class="sel-field" title="网格">网格
+            <select id="gridSel">
+              <option value="0">无</option><option value="4">4×4</option><option value="8" selected>8×8</option><option value="16">16×16</option><option value="32">32×32</option>
+              <option value="t6">三角 6</option><option value="t12">三角 12</option>
+            </select>
+          </label>
+          <label class="chk" title="吸附"><input type="checkbox" id="snapChk" checked>吸附</label>
+        </div>
+        <div class="design-split">
+          <div class="editor-wrap"><canvas id="cpCanvas" tabindex="0"></canvas><div class="hint" id="edStatus">画线：在纸上拖动即可画折痕，按住 Shift 约束为 22.5° 的倍数</div></div>
+        </div>
+      </div>
+
+      <!-- 3D viewport (sim + design preview) -->
+      <div class="viewport" id="viewport">
+        <canvas id="glCanvas"></canvas>
+        <div class="vp-overlay top-left">
+          <div class="model-title"><span id="modelName">—</span><small id="modelInfo"></small></div>
+        </div>
+        <div class="vp-overlay top-right vbar">
+          <button class="vbtn" data-view="persp" title="透视视角 (0)">透视</button>
+          <button class="vbtn" data-view="top" title="俯视 (7)">俯视</button>
+          <button class="vbtn" data-view="front" title="正视 (1)">正视</button>
+          <button class="vbtn" data-view="right" title="侧视 (3)">侧视</button>
+          <button class="vbtn" data-view="bottom" title="仰视（背面）">仰视</button>
+          <button class="vbtn icon" id="btnFit" title="适配视图 (F)"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2"/><path d="M12 2v3 M12 19v3 M2 12h3 M19 12h3"/></svg></button>
+          <button class="vbtn icon" id="btnFull" title="全屏"><svg viewBox="0 0 24 24"><path d="M3 8V3h5 M21 8V3h-5 M3 16v5h5 M21 16v5h-5"/></svg></button>
+        </div>
+        <div class="vp-overlay bottom-left legend" id="strainLegend" hidden>
+          <span>应变</span><i class="grad"></i><span id="strainMax">0%</span>
+        </div>
+        <div class="vp-overlay bottom-right toggles">
+          <button class="tog" id="togGrab" title="拖拽模式：直接用鼠标拖动纸面上的点 (G)"><svg viewBox="0 0 24 24"><path d="M8 13V5.5a1.5 1.5 0 0 1 3 0V12 M11 11V4.5a1.5 1.5 0 0 1 3 0V12 M14 11.5V6a1.5 1.5 0 0 1 3 0v8a7 7 0 0 1-7 7h-.5A6.5 6.5 0 0 1 4 16l-1.5-3.5a1.5 1.5 0 0 1 2.6-1.4L8 15"/></svg>拖拽</button>
+          <button class="tog on" id="togCreases" title="显示折痕 (C)">折痕</button>
+          <button class="tog" id="togWire" title="显示三角网格 (W)">网格</button>
+          <button class="tog" id="togStrain" title="应变热力图 (H)">应变</button>
+          <button class="tog on" id="togGround" title="地面">地面</button>
+        </div>
+        <div class="loading" id="glError" hidden></div>
+      </div>
+
+      <!-- step-fold view (step mode) -->
+      <div class="step-area" id="stepArea">
+        <div class="toolbar" id="stepToolbar">
+          <div class="tgroup" id="stepToolGroup">
+            <button class="tbtn active" data-stool="line" title="画折线：拖出一条折线，然后点击要翻折的一侧"><svg viewBox="0 0 24 24"><path d="M4 20 20 4" stroke-dasharray="3 2"/></svg><span>折线</span></button>
+            <button class="tbtn" data-stool="p2p" title="点对点：把一个点折到另一个点上"><svg viewBox="0 0 24 24"><circle cx="5" cy="19" r="2"/><circle cx="19" cy="5" r="2"/><path d="M7 17 17 7" stroke-dasharray="2 2"/></svg><span>点到点</span></button>
+            <button class="tbtn" data-stool="e2e" title="边对边：把一条边折到另一条边上（角平分）"><svg viewBox="0 0 24 24"><path d="M4 20h16 M4 20 16 4 M4 20l16-8" /></svg><span>边到边</span></button>
+            <button class="tbtn" data-stool="pan" title="平移视图"><svg viewBox="0 0 24 24"><path d="M12 3v18 M3 12h18"/></svg><span>平移</span></button>
+          </div>
+          <div class="tsep"></div>
+          <div class="seg" id="kindSeg">
+            <button class="active" data-kind="valley" title="谷折：翻起的部分折到上面（朝向你）">谷折</button>
+            <button data-kind="mountain" title="山折：翻起的部分折到下面（背后）">山折</button>
+          </div>
+          <div class="seg" id="scopeSeg">
+            <button class="active" data-scope="all" title="折叠穿过折线的所有层">所有层</button>
+            <button data-scope="top" title="只折叠最上层的翻片">仅顶层</button>
+            <button data-scope="topSheet" title="从点击处最上层开始，自动选中这一叠连通的纸（同一块翻片的所有层一起折）">仅最上层</button>
+          </div>
+          <div class="tsep"></div>
+          <div class="tgroup">
+            <button class="tbtn icon" id="stUndo" title="撤销 (Ctrl+Z)"><svg viewBox="0 0 24 24"><path d="M9 14 4 9l5-5 M4 9h11a5 5 0 0 1 0 10h-3"/></svg></button>
+            <button class="tbtn icon" id="stRedo" title="重做"><svg viewBox="0 0 24 24"><path d="m15 14 5-5-5-5 M20 9H9a5 5 0 0 0 0 10h3"/></svg></button>
+            <button class="tbtn" id="stFlip" title="翻面"><svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 0 1 14-5l2-2v6h-6l2-2a5 5 0 0 0-9 3 M20 12a8 8 0 0 1-14 5l-2 2v-6h6l-2 2a5 5 0 0 0 9-3"/></svg><span>翻面</span></button>
+            <button class="tbtn" id="stRotL" title="逆时针旋转 45°"><svg viewBox="0 0 24 24"><path d="M3 4v6h6 M3.5 10A9 9 0 1 1 6 18"/></svg></button>
+            <button class="tbtn" id="stRotR" title="顺时针旋转 45°"><svg viewBox="0 0 24 24"><path d="M21 4v6h-6 M20.5 10A9 9 0 1 0 18 18"/></svg></button>
+            <button class="tbtn" id="stReset" title="重新开始：一张新纸"><svg viewBox="0 0 24 24"><path d="M5 3h14v18H5z"/></svg><span>新纸</span></button>
+          </div>
+          <div class="tsep"></div>
+          <button class="btn primary sm" id="stTo3D" title="把当前折出的所有折痕发送到 3D 仿真">折痕 → 3D 仿真</button>
+        </div>
+        <div class="step-canvas-wrap"><canvas id="stepCanvas" tabindex="0"></canvas><div class="hint" id="stStatus">拖出一条折线，再点击要翻折的一侧</div></div>
+      </div>
+
+      <!-- fold control bar (sim + design) -->
+      <div class="foldbar" id="foldbar">
+        <button class="btn icon primary round" id="btnPlay" title="播放折叠动画 (空格)"><svg class="i-play" viewBox="0 0 24 24"><path d="M7 4v16l13-8z"/></svg><svg class="i-pause" viewBox="0 0 24 24"><path d="M6 4h4v16H6z M14 4h4v16h-4z"/></svg></button>
+        <div class="fold-slider">
+          <div class="fold-labels"><span>展开</span><span>折叠程度 <b id="foldVal">0%</b></span><span>完全折叠</span></div>
+          <input type="range" id="foldRange" min="-100" max="100" step="1" value="0" aria-label="折叠程度">
+          <div class="fold-ticks"><span>-100%（山谷反转）</span><span>0</span><span>100%</span></div>
+        </div>
+        <div class="fold-btns">
+          <button class="btn sm" data-fold="0" title="完全展开">0%</button>
+          <button class="btn sm" data-fold="50">50%</button>
+          <button class="btn sm" data-fold="100" title="完全折叠">100%</button>
+          <button class="btn sm ghost" id="btnResetSim" title="重置仿真（回到平面状态）(R)"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8 M3 3v5h5"/></svg>重置</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================ right: inspector -->
+    <aside class="panel right" id="rightPanel">
+      <!-- step mode panel -->
+      <div class="step-panel" id="stepPanel">
+        <section class="card">
+          <h3>教程模型</h3>
+          <select id="stepModelSel" class="full"></select>
+          <p class="muted small" id="stepModelDesc"></p>
+          <div class="step-nav">
+            <button class="btn sm" id="stPrev" title="上一步 (←)">◀ 上一步</button>
+            <span id="stStepNo">0 / 0</span>
+            <button class="btn sm primary" id="stNext" title="下一步 (→)">下一步 ▶</button>
+          </div>
+          <button class="btn sm ghost full" id="stAuto">▶ 自动演示</button>
+        </section>
+        <section class="card grow">
+          <h3>步骤</h3>
+          <ol class="steps" id="stSteps"></ol>
+        </section>
+        <section class="card">
+          <h3>纸张颜色</h3>
+          <div class="color-row"><label>正面 <input type="color" id="stFront" value="#e8553d"></label><label>背面 <input type="color" id="stBack" value="#f6f1e7"></label></div>
+        </section>
+      </div>
+
+      <!-- sim / design panel -->
+      <div class="sim-panel" id="simPanel">
+        <section class="card cp-card">
+          <h3>折痕图 <small class="muted" id="cpStats"></small></h3>
+          <canvas id="cpThumb" class="cp-thumb" title="点击进入折痕设计"></canvas>
+          <div class="validation" id="validation"></div>
+        </section>
+        <section class="card" id="paramCard" hidden>
+          <h3>图案参数</h3>
+          <div id="paramList" class="params"></div>
+        </section>
+        <section class="card">
+          <h3>纸张外观</h3>
+          <div class="color-row">
+            <label>正面 <input type="color" id="colFront" value="#e8553d"></label>
+            <label>背面 <input type="color" id="colBack" value="#f6f1e7"></label>
+          </div>
+          <div class="swatches" id="swatches"></div>
+          <div class="row"><label>纹样</label>
+            <select id="patternSel"><option value="0">纯色</option><option value="1">棋盘格</option><option value="2">波点</option></select>
+            <label class="chk"><input type="checkbox" id="texChk" checked>纸纹</label>
+          </div>
+        </section>
+        <section class="card">
+          <h3>仿真参数 <button class="link" id="simDefaults">恢复默认</button></h3>
+          <div class="params" id="simParams"></div>
+          <div class="row"><label class="chk" title="纸张不会穿过自己；层与层之间会留出厚度"><input type="checkbox" id="collisionChk" checked>自碰撞</label><label class="chk"><input type="checkbox" id="autoFit" checked>自动居中</label><label class="chk" title="按平面三角形着色，折痕更锐利"><input type="checkbox" id="flatChk" checked>平直着色</label></div>
+          <div class="params"><div class="param"><label title="自碰撞用的纸张厚度">纸张厚度</label><input type="range" id="thicknessRange" min="1" max="20" step="1" value="6"><output id="thicknessOut">6</output></div></div>
+        </section>
+        <section class="card">
+          <h3>状态</h3>
+          <dl class="stats" id="simStats">
+            <dt>顶点 / 三角形</dt><dd id="stNodes">-</dd>
+            <dt>折痕 山/谷/自由</dt><dd id="stCreases">-</dd>
+            <dt>平均折角误差</dt><dd id="stErr">-</dd>
+            <dt>最大应变</dt><dd id="stStrain">-</dd>
+            <dt>自碰撞接触</dt><dd id="stContacts">-</dd>
+            <dt>迭代 / 帧</dt><dd id="stIter">-</dd>
+            <dt>帧率</dt><dd id="stFps">-</dd>
+          </dl>
+        </section>
+      </div>
+    </aside>
+  </main>
+
+  <input type="file" id="fileInput" accept=".svg,.fold,.json,image/svg+xml,application/json" hidden>
+  <div class="drop-mask" id="dropMask"><div>松开以导入 SVG / FOLD / 项目文件</div></div>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <!-- help -->
+  <div class="modal" id="helpModal" hidden>
+    <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
+      <button class="modal-close" aria-label="关闭">×</button>
+      <h2 id="helpTitle">使用说明</h2>
+      <div class="help-grid">
+        <section>
+          <h4>三种模式</h4>
+          <p><b>3D 仿真</b>：选择左侧图案（或导入 SVG/FOLD 折痕图），拖动底部“折叠程度”滑块，基于杆-铰链（bar &amp; hinge）动力学模型实时计算纸张形态。负值会将山折与谷折互换。</p>
+          <p><b>自碰撞</b>：默认开启，纸张层与层之间会互相顶住、不会穿过彼此；“纸张厚度”滑块控制层间距。想看纸被“顶开”的样子可以关掉它。</p>
+          <p><b>分步折叠</b>：多条折痕可以分先后（例如三折页先折一道再折另一道），拖动滑块时会按顺序逐道折完，纸片不会同时往同一处扫过去。</p>
+          <p><b>折痕设计</b>：在 2D 折痕图编辑器中绘制山折（红）、谷折（蓝）、平面线、自由铰链、剪切线，右侧实时 3D 预览；编辑器会检查每个内部顶点是否满足平折条件。</p>
+          <p><b>分步折叠</b>：像折真纸一样一步步折：画折线、点到点、边到边，可翻面/旋转，跟随教程完成纸飞机、纸船等作品，并可把折痕发送到 3D 仿真。</p>
+        </section>
+        <section>
+          <h4>3D 视图操作</h4>
+          <ul>
+            <li>左键拖动：旋转　右键 / Shift + 拖动：平移　滚轮 / 双指：缩放</li>
+            <li>“拖拽”模式下左键可直接抓取纸面上的点拉扯纸张</li>
+            <li><kbd>空格</kbd> 播放/暂停 <kbd>F</kbd> 适配 <kbd>R</kbd> 重置 <kbd>0</kbd><kbd>1</kbd><kbd>3</kbd><kbd>7</kbd> 视角 <kbd>W</kbd> 网格 <kbd>H</kbd> 应变 <kbd>G</kbd> 拖拽</li>
+          </ul>
+          <h4>折痕设计快捷键</h4>
+          <ul>
+            <li><kbd>L</kbd> 画线 <kbd>S</kbd> 选择 <kbd>E</kbd> 擦除 <kbd>B</kbd> 角平分 <kbd>P</kbd> 中垂线 <kbd>R</kbd> 射线</li>
+            <li><kbd>1</kbd>-<kbd>5</kbd> 或 <kbd>M</kbd>/<kbd>V</kbd>/<kbd>F</kbd>/<kbd>U</kbd>/<kbd>C</kbd> 切换线型　<kbd>Shift</kbd> 22.5° 角度约束　<kbd>Esc</kbd> 取消</li>
+            <li><kbd>Ctrl+Z</kbd> 撤销 <kbd>Ctrl+Shift+Z</kbd> 重做 <kbd>Del</kbd> 删除 <kbd>Ctrl+A</kbd> 全选</li>
+          </ul>
+        </section>
+        <section>
+          <h4>平折定理</h4>
+          <p><b>前川定理（Maekawa）</b>：平折顶点处山折与谷折数量相差 2，即 |M − V| = 2。</p>
+          <p><b>川崎定理（Kawasaki）</b>：平折顶点周围相间的扇形角之和均为 180°。</p>
+          <p>编辑器中绿色圆圈表示该顶点满足两条定理，红色表示不满足（鼠标悬停查看误差）。局部可平折并不保证整体可平折（还需层序不自交）。</p>
+        </section>
+        <section>
+          <h4>文件格式</h4>
+          <p>SVG 颜色约定（与 Origami Simulator 兼容）：红色 = 山折、蓝色 = 谷折、黑色 = 边界、绿色 = 剪切、黄色 = 平面线、品红 = 未指定；线条透明度表示目标折角（1 = 180°）。也支持 <a href="https://github.com/edemaine/fold" target="_blank" rel="noopener">FOLD</a> 格式的读写，及 OBJ / STL 模型导出。</p>
+          <p class="muted small">仿真为简化物理模型：自碰撞是近似的软约束；折痕图的折角设定若互相矛盾（如把两种折痕设成同一折角），纸会靠拉伸去凑，看起来就会互相穿过。</p>
+          <p class="muted small">吉村折的菱形格里，水平折痕与对角折痕的折角必须按“可折叠族”配套（水平 15° 时对角约 38°）；它的刚性折叠范围很小，水平折角超过 20–25° 面板就只能互相穿过，所以参数上限卡在 20°。</p>
+          <p class="muted small" id="buildVer">构建版本：—</p>
+        </section>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="js/geom.js"></script>
+<script src="js/cp.js"></script>
+<script src="js/solver.js"></script>
+<script src="js/renderer.js"></script>
+<script src="js/patterns.js"></script>
+<script src="js/cpeditor.js"></script>
+<script src="js/stepfold.js"></script>
+<script src="js/stepmodels.js"></script>
+<script src="js/stepview.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
