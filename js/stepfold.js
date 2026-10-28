@@ -304,7 +304,7 @@
       mvMax = Math.max(mvMax, f.layer); mvMin = Math.min(mvMin, f.layer);
       if (mvp.whole) { f.moving = true; out.push(f); moved.push(f.id); return; }
       var stp = mine.filter(function (p) { return !p.moving; })[0];
-      var nf = { id: s.nextId++, poly: mvp.poly, T: cloneT(f.T), layer: f.layer, moving: true };
+      var nf = { id: s.nextId++, parent: f.id, poly: mvp.poly, T: cloneT(f.T), layer: f.layer, moving: true };
       out.push({ id: f.id, poly: stp.poly, T: f.T, layer: f.layer });
       out.push(nf); moved.push(nf.id);
     });
@@ -444,11 +444,119 @@
   function serialize(s) { return JSON.stringify(s); }
   function deserialize(str) { var s = typeof str === 'string' ? JSON.parse(str) : str; return clone(s); }
 
+
+  // ---------------------------------------------------------------- 3D display pose
+  // 把分步折叠的“成品”按指定折角在三维里重新摆一遍，用来“展开展示”：
+  // 例如纸飞机折完后把两侧机翼的折痕从 180° 打开到 150°，就得到能看的三维飞机。
+  // M3 = { R:[9] (row-major 3x3), t:[3] }  paper(x,y,0) → 3D
+  function m3ident() { return { R: [1, 0, 0, 0, 1, 0, 0, 0, 1], t: [0, 0, 0] }; }
+  function m3apply(M, p) {
+    var R = M.R, t = M.t, x = p[0], y = p[1], z = p[2] || 0;
+    return [R[0] * x + R[1] * y + R[2] * z + t[0], R[3] * x + R[4] * y + R[5] * z + t[1], R[6] * x + R[7] * y + R[8] * z + t[2]];
+  }
+  function m3mul(A, B) { // A ∘ B
+    var a = A.R, b = B.R, R = new Array(9), t = [0, 0, 0], i, j;
+    for (i = 0; i < 3; i++) for (j = 0; j < 3; j++) R[i * 3 + j] = a[i * 3] * b[j] + a[i * 3 + 1] * b[3 + j] + a[i * 3 + 2] * b[6 + j];
+    var bt = m3apply(A, B.t);
+    for (i = 0; i < 3; i++) t[i] = bt[i];
+    return { R: R, t: t };
+  }
+  function m3rotAxis(axisPoint, axisDir, deg) {
+    var u = OG3.norm(axisDir), c = Math.cos(deg * Math.PI / 180), s = Math.sin(deg * Math.PI / 180), v = 1 - c;
+    var x = u[0], y = u[1], z = u[2];
+    var R = [c + x * x * v, x * y * v - z * s, x * z * v + y * s,
+      y * x * v + z * s, c + y * y * v, y * z * v - x * s,
+      z * x * v - y * s, z * y * v + x * s, c + z * z * v];
+    // rotation about line through axisPoint: t = p - R p
+    var rp = [R[0] * axisPoint[0] + R[1] * axisPoint[1] + R[2] * axisPoint[2],
+      R[3] * axisPoint[0] + R[4] * axisPoint[1] + R[5] * axisPoint[2],
+      R[6] * axisPoint[0] + R[7] * axisPoint[1] + R[8] * axisPoint[2]];
+    return { R: R, t: [axisPoint[0] - rp[0], axisPoint[1] - rp[1], axisPoint[2] - rp[2]] };
+  }
+  var OG3 = {
+    norm: function (a) { var l = Math.sqrt(a[0] * a[0] + a[1] * a[1] + a[2] * a[2]) || 1; return [a[0] / l, a[1] / l, a[2] / l]; },
+    sub: function (a, b) { return [a[0] - b[0], a[1] - b[1], a[2] - b[2]]; },
+    cross: function (a, b) { return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]; },
+    dot: function (a, b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
+  };
+
+  /** 按 steps 重放，返回三维显示姿态：{ polys:[{pts:[[x,y,z]..], front:[nx,ny,nz]}], bounds } */
+  function threeDPose(steps, opts) {
+    opts = opts || {};
+    var angles = opts.angles || {};                 // { 步序号(0基): 角度 } 默认 180
+    var flipDeg = opts.flipAngle === undefined ? 180 : opts.flipAngle;
+    var st = create({ width: opts.width || 1, height: opts.height || 1 });
+    var M = {};                                     // facet id → M3
+    st.facets.forEach(function (f) { M[f.id] = m3ident(); });
+    var undoStack = [];
+    (steps || []).forEach(function (step, i) {
+      var op = step.op || step;
+      var before = st, r = applyOp(st, op);
+      if (r.error) return;
+      var after = r.state;
+      // 新产生的纸片继承父片的三维变换（沿 parent 链找）
+      after.facets.forEach(function (f) {
+        if (M[f.id]) return;
+        var cur = f, seen = 0;
+        while (cur && !M[cur.id] && cur.parent !== undefined && seen++ < 64) cur = before.facets.filter(function (x) { return x.id === cur.parent; })[0];
+        M[f.id] = (cur && M[cur.id]) ? M[cur.id] : m3ident();
+      });
+      if (op.type === 'fold') {
+        var ang = angles[i] === undefined ? 180 : angles[i];
+        // 折线是“当前折叠平面”里的坐标：先换算回纸面坐标，再用该纸片的 M3 映射到三维
+        var mv = (r.moved || [])[0];
+        var parentFacet = null;
+        if (mv !== undefined) {
+          var afterFacet = null;
+          for (var ai = 0; ai < after.facets.length; ai++) if (after.facets[ai].id === mv) { afterFacet = after.facets[ai]; break; }
+          var wantId = afterFacet && afterFacet.parent !== undefined ? afterFacet.parent : mv;
+          for (var bi = 0; bi < before.facets.length; bi++) if (before.facets[bi].id === wantId) { parentFacet = before.facets[bi]; break; }
+        }
+        if (mv !== undefined && parentFacet && M[parentFacet.id]) {
+          var Tinv = invert(parentFacet.T);
+          var pa = apply(Tinv, op.a), pb = apply(Tinv, op.b);
+          var p1 = m3apply(M[parentFacet.id], [pa[0], pa[1], 0]), p2 = m3apply(M[parentFacet.id], [pb[0], pb[1], 0]);
+          var dir = OG3.sub(p2, p1);
+          if (Math.sqrt(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]) > 1e-9) {
+            var sign = op.kind === 'mountain' ? -1 : 1;
+            var Rm = m3rotAxis(p1, dir, sign * ang);
+            var ids = {};
+            (r.moved || []).forEach(function (id) { ids[id] = 1; M[id] = m3mul(Rm, M[id] || m3ident()); });
+            undoStack.push({ ids: r.moved || [], R: m3rotAxis(p1, dir, -sign * ang) });
+          }
+        }
+      } else if (op.type === 'flip') {
+        var b = bounds(before), c = b.center;
+        // 二维的 flip 是“沿竖直中轴翻面”，三维里等于绕竖直轴(y)转 180°
+        var Rf = m3rotAxis([c[0], c[1], 0], [0, 1, 0], flipDeg);
+        after.facets.forEach(function (f) { M[f.id] = m3mul(Rf, M[f.id] || m3ident()); });
+      } else if (op.type === 'rotate') {
+        var b2 = bounds(before), c2 = b2.center;
+        var Rr = m3rotAxis([c2[0], c2[1], 0], [0, 0, 1], (op.deg || 0));
+        after.facets.forEach(function (f) { M[f.id] = m3mul(Rr, M[f.id] || m3ident()); });
+      } else if (op.type === 'unfold') {
+        var u = undoStack.pop();
+        if (u) u.ids.forEach(function (id) { if (M[id]) M[id] = m3mul(u.R, M[id]); });
+      }
+      st = after;
+    });
+    var polys = [], mn = [1e9, 1e9, 1e9], mx = [-1e9, -1e9, -1e9];
+    st.facets.forEach(function (f) {
+      var Mf = M[f.id] || m3ident();
+      var pts = f.poly.map(function (q) { return m3apply(Mf, [q[0], q[1], 0]); });
+      // 纸面正面法向：纸面坐标里正面是 +z，映射到三维
+      var front = OG3.norm(m3apply(Mf, [0, 0, 1]).map(function (v, k) { return v - Mf.t[k]; }));
+      polys.push({ pts: pts, front: front, layer: f.layer, area: Math.abs(OG.polyArea(f.poly)) });
+      pts.forEach(function (p) { for (var k = 0; k < 3; k++) { if (p[k] < mn[k]) mn[k] = p[k]; if (p[k] > mx[k]) mx[k] = p[k]; } });
+    });
+    return { polys: polys, min: mn, max: mx, state: st };
+  }
+
   global.StepFold = {
     create: create, clone: clone, fold: fold, crease: crease, unfold: unfold, flip: flip, rotate: rotate, applyOp: applyOp, bounds: bounds, hitFacet: hitFacet,
     lineFromPoints: lineFromPoints, pointToPoint: pointToPoint, edgeToEdge: edgeToEdge,
     visibleFaces: visibleFaces, outlineEdges: outlineEdges, snapPoints: snapPoints, totalArea: totalArea,
-    creasePattern: creasePattern, serialize: serialize, deserialize: deserialize,
+    creasePattern: creasePattern, threeDPose: threeDPose, serialize: serialize, deserialize: deserialize,
     affine: { apply: apply, compose: compose, invert: invert, det: det, reflection: reflection }
   };
 })(typeof window !== 'undefined' ? window : globalThis);

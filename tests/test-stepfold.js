@@ -91,5 +91,30 @@ SM.list().forEach(function (meta) {
   var nAll = foldCount(s3, pl.steps[5].op, 'all'), nTop = foldCount(s3, pl.steps[5].op, 'topSheet');
   ok(nTop > 0 && nTop < nAll, 'topSheet：纸飞机前翼只折前面那半（all=' + nAll + ', top=' + nTop + '）');
 })();
+
+// ---- 3D 展开展示姿态：默认 180° 时投影应与平面成品完全一致
+(function () {
+  function sig(pts) { return pts.map(function (p) { return p.join(';'); }).sort().join('|'); }
+  var allOk = true, list = SM.list().map(function (m) { return m.id; });
+  list.forEach(function (id) {
+    var m = SM.get(id), st = SF.create({ width: m.width, height: m.height });
+    m.steps.forEach(function (s) { var r = SF.applyOp(st, s.op); if (!r.error) st = r.state; });
+    var pose = SF.threeDPose(m.steps, { width: m.width, height: m.height });
+    var a = sig(pose.polys.map(function (p) {
+      return p.pts.map(function (q) { return [q[0], q[1], 0].map(function (v) { return v.toFixed(3); }).join(','); }).sort();
+    }));
+    var b = sig(st.facets.map(function (f) {
+      return f.poly.map(function (q) { var p = SF.affine.apply(f.T, q); return [p[0], p[1], 0].map(function (v) { return v.toFixed(3); }).join(','); }).sort();
+    }));
+    if (a !== b) { allOk = false; console.log('  3D pose 与平面不一致:', id); }
+  });
+  ok(allOk, '3D 展示姿态：180° 时与平面成品一致（' + list.length + ' 个教程）');
+  // 打开机翼后应当出现厚度（z 不再为 0）
+  var g = SM.get('glider'), pg = SF.threeDPose(g.steps, { width: g.width, height: g.height, angles: g.displayAngles || {} });
+  var zSpan = pg.max[2] - pg.min[2];
+  ok(zSpan > 0.02, '3D 展示姿态：滑翔机展开后有机翼高度（z 跨度 ' + zSpan.toFixed(3) + '）');
+  var flat = SF.threeDPose(g.steps, { width: g.width, height: g.height });
+  ok(Math.abs((flat.max[2] - flat.min[2])) < 1e-6, '3D 展示姿态：不展开时仍是平的');
+})();
 console.log(passes + ' passed, ' + fails + ' failed');
 process.exit(fails ? 1 : 0);

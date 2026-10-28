@@ -22,6 +22,8 @@
     this.view = { s: 300, ox: 0, oy: 0 }; this.viewGoal = null; this.userView = false;
     this.ui = { mode: 'idle' };
     this.anim = null;
+    this.show3d = false;                       // 3D 展开展示
+    this.rot3d = { yaw: -0.72, pitch: 0.46 };   // 3D 展示的视角
     this.noise = this._makeNoise();
     this._bind();
     this.reset(1, 1);
@@ -74,6 +76,64 @@
   P.setKind = function (k) { this.kind = k === 'mountain' ? 'mountain' : 'valley'; this._invalidatePreview(); };
   P.setScope = function (s) { this.scope = s; this._invalidatePreview(); };
   P.setPaperColors = function (f, b) { this.front = hexRgb(f); this.back = hexRgb(b); this.dirty = true; };
+  /** 切换到「3D 展开展示」：把折好的成品按模型的 displayAngles 打开成三维姿态 */
+  P.set3D = function (on) {
+    this.show3d = !!on;
+    this.ui = { mode: 'idle' };
+    this.dirty = true;
+    this.onStatus(this.show3d ? '3D 展示：拖动可以转动视角，再点一次「3D 展示」回到平面' : this._hint());
+    return this.show3d;
+  };
+
+  /** 3D 展示：按 displayAngles 把折痕打开、投影绘制 */
+  P._draw3D = function (ctx) {
+    var self = this, W = this.W, H = this.H;
+    var m = this.model || { width: 1, height: 1 };
+    var pose = SF.threeDPose(this.steps.map(function (s2) { return { op: s2.op }; }), {
+      width: m.width || 1, height: m.height || 1, angles: m.displayAngles || {}
+    });
+    var mn = pose.min, mx = pose.max;
+    var size = Math.max(mx[0] - mn[0], mx[1] - mn[1], mx[2] - mn[2], 1e-3);
+    var s = Math.min(W, H) / (size * 1.5);
+    var cx = [(mn[0] + mx[0]) / 2, (mn[1] + mx[1]) / 2, (mn[2] + mx[2]) / 2];
+    var yaw = this.rot3d.yaw, pitch = this.rot3d.pitch;
+    var cy = Math.cos(yaw), sy = Math.sin(yaw), cp = Math.cos(pitch), sp = Math.sin(pitch);
+    function project(p) {
+      var x = p[0] - cx[0], y = p[1] - cx[1], z = p[2] - cx[2];
+      var x1 = cy * x - sy * y, y1 = sy * x + cy * y;
+      var y2 = cp * y1 - sp * z, z2 = sp * y1 + cp * z;
+      return [W / 2 + x1 * s, H / 2 + y2 * s, z2];
+    }
+    var items = [];
+    pose.polys.forEach(function (poly) {
+      if (!poly.pts.length) return;
+      var pr = poly.pts.map(project);
+      var zs = 0;
+      pr.forEach(function (q) { zs += q[2]; });
+      zs /= pr.length;
+      var ax = pr[1][0] - pr[0][0], ay = pr[1][1] - pr[0][1], bx = pr[2][0] - pr[0][0], by = pr[2][1] - pr[0][1];
+      var cross = ax * by - ay * bx;
+      items.push({ pr: pr, z: zs, front: cross < 0, area: Math.abs(cross) });
+    });
+    items.sort(function (a, b) { return a.z - b.z; });
+    items.forEach(function (d) {
+      var rgb = d.front ? self.front : self.back;
+      // 简单光照：法向朝上打亮一点
+      var lit = d.front ? 1 : 0.99;
+      ctx.beginPath();
+      d.pr.forEach(function (q, i) { if (i) ctx.lineTo(q[0], q[1]); else ctx.moveTo(q[0], q[1]); });
+      ctx.closePath();
+      ctx.fillStyle = shade(rgb, lit);
+      ctx.fill();
+      ctx.strokeStyle = shade(rgb, 0.62); ctx.globalAlpha = 0.8; ctx.lineWidth = 1; ctx.lineJoin = 'round'; ctx.stroke(); ctx.globalAlpha = 1;
+    });
+    // 提示文字
+    ctx.save();
+    ctx.fillStyle = this._dark ? 'rgba(255,255,255,.55)' : 'rgba(70,55,35,.55)';
+    ctx.font = '13px system-ui, -apple-system, "PingFang SC", sans-serif';
+    ctx.fillText('3D 展示：拖动旋转', 14, H - 16);
+    ctx.restore();
+  };
   P.state = function () { return this.history[this.pos]; };
   P.getCreasePattern = function () { return SF.creasePattern(this.state(), this.model ? this.model.name + ' 折痕' : '分步折叠折痕'); };
   /** 全部步骤折完后的折痕图（保存作品时做缩略图用） */
@@ -233,6 +293,7 @@
     for (var y = gy; y < H; y += gs) { ctx.moveTo(0, y); ctx.lineTo(W, y); }
     ctx.stroke(); ctx.restore();
 
+    if (this.show3d) { this._draw3D(ctx); return; }
     var st = this.anim ? this.anim.after : this.state();
     var list = this._drawables();
     var creases = st.creases;
@@ -427,6 +488,7 @@
         var sp = pos(e), w = self.toWorld(sp[0], sp[1]);
         if (self.anim) return;
         c.setPointerCapture && c.setPointerCapture(e.pointerId);
+        if (self.show3d) { drag = { mode: 'orbit', sx: sp[0], sy: sp[1], yaw: self.rot3d.yaw, pitch: self.rot3d.pitch }; c.style.cursor = 'grabbing'; return; }
         if (e.button === 1 || e.button === 2 || self.tool === 'pan' || self._space) { drag = { mode: 'pan', sx: sp[0], sy: sp[1], ox: self.view.ox, oy: self.view.oy }; c.style.cursor = 'grabbing'; return; }
         drag = { mode: 'tool', sx: sp[0], sy: sp[1], w: w, moved: false };
         if (self.tool === 'line' && self.ui.mode !== 'side') { var s0 = self._snap(w); self.ui = { mode: 'drawing', a: s0.p, b: s0.p, snap: s0 }; }
@@ -434,6 +496,11 @@
       },
       move: function (e) {
         var sp = pos(e), w = self.toWorld(sp[0], sp[1]);
+        if (drag && drag.mode === 'orbit') {
+          self.rot3d.yaw = drag.yaw + (sp[0] - drag.sx) * 0.01;
+          self.rot3d.pitch = Math.max(-1.45, Math.min(1.45, drag.pitch + (sp[1] - drag.sy) * 0.008));
+          self.dirty = true; return;
+        }
         if (drag && drag.mode === 'pan') { self.view.ox = drag.ox + sp[0] - drag.sx; self.view.oy = drag.oy + sp[1] - drag.sy; self.userView = true; self.viewGoal = null; self.dirty = true; return; }
         if (self.anim) return;
         var ui = self.ui;
@@ -462,6 +529,7 @@
         }
       },
       up: function (e) {
+        if (self.show3d) { drag = null; c.style.cursor = 'grab'; self.dirty = true; return; }
         var sp = pos(e), w = self.toWorld(sp[0], sp[1]), d = drag; drag = null;
         if (d && d.mode === 'pan') { c.style.cursor = self.tool === 'pan' ? 'grab' : 'crosshair'; return; }
         if (!d || self.anim) return;

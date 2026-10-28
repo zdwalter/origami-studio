@@ -503,7 +503,21 @@
     if (S.stepView) return S.stepView;
     if (typeof StepView === 'undefined') { $('stStatus').textContent = '分步折叠模块未加载'; return null; }
     S.stepView = new StepView($('stepCanvas'), {
-      onChange: function () { renderStepList(); },
+      onChange: function () {
+        renderStepList();
+        // 折到最后一步、且这个作品能展开展示时，提示一次
+        try {
+          var v = S.stepView, info = v.getInfo();
+          var m = v.model;
+          if (m && m.displayAngles && info.modelSteps > 0 && info.stepIndex >= info.modelSteps) {
+            S.hinted3D = S.hinted3D || {};
+            if (!S.hinted3D[m.id]) {
+              S.hinted3D[m.id] = 1;
+              setTimeout(function () { toast('折完了！点「3D 展开展示」看看成品的三维样子'); }, 500);
+            }
+          }
+        } catch (e) {}
+      },
       onStatus: function (t) { $('stStatus').textContent = t; }
     });
     S.stepView.setPaperColors($('stFront').value, $('stBack').value);
@@ -806,6 +820,12 @@
     $('stRotR').addEventListener('click', function () { if (S.stepView) S.stepView.rotate(45); });
     $('stReset').addEventListener('click', function () { if (S.stepView) { $('stepModelSel').value = ''; S.stepView.reset(1, 1); $('stepModelDesc').textContent = ''; renderStepList(); } });
     $('stTo3D').addEventListener('click', stepTo3D);
+    $('st3D').addEventListener('click', function () {
+      if (!S.stepView) return;
+      var on = S.stepView.set3D(!S.stepView.show3d);
+      this.classList.toggle('primary', on);
+      this.textContent = on ? '← 回到平面' : '3D 展开展示';
+    });
     $('stepModelSel').addEventListener('change', function () {
       var v = S.stepView; if (!v) return;
       stopAuto();

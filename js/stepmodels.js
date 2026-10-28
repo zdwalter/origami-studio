@@ -18,6 +18,7 @@
     var bx = 0.5 - T225; // where the 22.5° folds meet the bottom edge
     models.push({
       id: 'plane', name: '纸飞机（经典飞镖）', difficulty: 1, frontColor: '#3e7bfa',
+      displayAngles: { 4: 174, 5: 150, 6: 150 },
       description: '最经典的尖头纸飞机：两次把斜边折到中线，再对折并折出机翼。',
       width: 1, height: 1,
       steps: [
@@ -134,6 +135,7 @@
   (function () {
     models.push({
       id: 'glider', name: '滑翔机（长方形纸）', difficulty: 3, frontColor: '#63a83a',
+      displayAngles: { 5: 168, 8: 172, 9: 148, 11: 148 },
       description: '用一张长方形纸（1:√2，A4 比例）折的滑翔机：中折痕 → 两个上角折到中线 → 两条斜边折到中线 → 机头折下 → 对折 → 两侧机翼分别沿斜线折下（只折连通的整叠翻片）。',
       width: Math.SQRT1_2, height: 1,
       steps: [
