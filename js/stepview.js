@@ -93,6 +93,38 @@
   };
 
   /** 手动指定展开角度（null = 用模型自带的角度） */
+  /**
+   * 修改某一步的折角（0..180，180 = 折平）。几何不变（平面引擎始终折平），
+   * 只影响：这一步折痕记录的 foldAngle、3D 展开展示、以及发送到 3D 的折叠树。
+   * 修改后重放所有步骤，保证折痕元数据与状态一致。
+   */
+  P.setStepAngle = function (i, deg) {
+    var st = this.steps[i];
+    if (!st || !st.op || st.op.type !== 'fold') return false;
+    deg = Math.max(0, Math.min(180, Math.round(deg)));
+    if (deg >= 180) delete st.op.angle; else st.op.angle = deg;
+    this._replay();
+    return true;
+  };
+  /** 用当前 steps 重新重放：重建 history / meta，折痕里的 foldAngle 随之更新 */
+  P._replay = function () {
+    if (this.anim) this._finishAnim();
+    var w = this.history[0].width, h = this.history[0].height;
+    var s = SF.create({ width: w, height: h });
+    var history = [s], meta = [];
+    for (var i = 0; i < this.steps.length; i++) {
+      var before = s, r = SF.applyOp(s, this.steps[i].op);
+      if (r.error) { this.onStatus('⚠ 步骤 ' + (i + 1) + '：' + r.error); break; }
+      history.push(r.state); meta.push(this._metaFor(this.steps[i].op, before, r));
+      s = r.state;
+    }
+    var keep = Math.min(this.pos, history.length - 1);
+    this.history = history; this.meta = meta; this.pos = keep;
+    this.steps.length = history.length - 1;
+    this._fit(); this._changed();
+    return this;
+  };
+
   P.setShowStages = function (on) { this.showStages = !!on; this.dirty = true; return this.showStages; };
 
   P.setDisplayAngle = function (deg) { this.angleOverride = (deg === null || deg === undefined) ? null : +deg; this.dirty = true; };

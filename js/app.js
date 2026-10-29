@@ -589,6 +589,7 @@
     S.stepView = new StepView($('stepCanvas'), {
       onChange: function () {
         renderStepList();
+        if (S.syncStepEditor) S.syncStepEditor();
         // 折到最后一步、且这个作品能展开展示时，提示一次
         try {
           var v = S.stepView, info = v.getInfo();
@@ -624,7 +625,10 @@
     if (!steps.length) box.innerHTML = '<li class="user"><div><b>自由折叠</b><span>用工具栏中的工具在纸上自由折叠，或从上方选择教程模型。</span></div></li>';
     else box.innerHTML = steps.map(function (st, i) {
       var cls = i < cur ? 'done' : i === cur ? 'current' : '';
-      return '<li class="' + cls + (st.user ? ' user' : '') + '" data-i="' + i + '"><div><b>' + esc(st.title || ('步骤 ' + (i + 1))) + '</b><span>' + esc(st.description || '') + '</span></div></li>';
+      var isFold = st.op && st.op.type === 'fold';
+      var ang = isFold && st.op.angle !== undefined ? st.op.angle : (isFold ? 180 : null);
+      var badge = (ang === null || ang >= 180) ? '' : '<em class="ang">' + ang + '°</em>';
+      return '<li class="' + cls + (st.user ? ' user' : '') + '" data-i="' + i + '"><div><b>' + esc(st.title || ('步骤 ' + (i + 1))) + badge + '</b><span>' + esc(st.description || '') + '</span></div></li>';
     }).join('');
     var total = info && info.modelSteps !== undefined ? info.modelSteps : steps.length;
     $('stStepNo').textContent = (info ? Math.min(cur, total) : 0) + ' / ' + total;
@@ -978,6 +982,34 @@
       $('stepModelDesc').textContent = (StepModels.list().filter(function (x) { return x.id === m.id; })[0] || {}).description || '';
       renderStepList();
     });
+    function syncStepEditor() {
+      var v = S.stepView; if (!v) return;
+      var info = v.getInfo(), i = info.stepIndex - 1;
+      var st = i >= 0 ? v.getSteps()[i] : null;
+      var isFold = !!(st && st.op && st.op.type === 'fold');
+      $('stEditRow').hidden = !isFold;
+      $('stEditHint').hidden = isFold;
+      $('stEditWhich').textContent = st ? '（第 ' + (i + 1) + ' 步' + (isFold ? ' · 折叠' : ' · ' + (st.op.type === 'flip' ? '翻面' : st.op.type === 'rotate' ? '旋转' : '其他')) + '）' : '';
+      if (isFold) {
+        var ang = st.op.angle !== undefined ? st.op.angle : 180;
+        $('stStepAngle').value = ang;
+        $('stStepAngleOut').textContent = ang + '°' + (ang >= 180 ? '（折平）' : '');
+      }
+    }
+    S.syncStepEditor = syncStepEditor;
+    function applyStepAngle(deg) {
+      var v = S.stepView; if (!v) return;
+      var i = v.getInfo().stepIndex - 1;
+      if (i < 0) return;
+      if (!v.setStepAngle(i, deg)) return;
+      $('stStepAngle').value = deg; $('stStepAngleOut').textContent = deg + '°' + (deg >= 180 ? '（折平）' : '');
+      renderStepList();
+      if (S.stepView.show3d) S.stepView.dirty = true;
+    }
+    $('stStepAngle').addEventListener('input', function () { applyStepAngle(+this.value); });
+    $('stStepAngle180').addEventListener('click', function () { applyStepAngle(180); });
+    $('stStepAngle90').addEventListener('click', function () { applyStepAngle(90); });
+    $('stStepAngle60').addEventListener('click', function () { applyStepAngle(60); });
     $('stPrev').addEventListener('click', function () { stopAuto(); if (S.stepView) S.stepView.prev(); });
     $('stNext').addEventListener('click', function () { stopAuto(); if (S.stepView) S.stepView.next(); });
     $('stAuto').addEventListener('click', function () { if (S.autoTimer) stopAuto(); else startAuto(); });

@@ -245,6 +245,21 @@
           <h3>步骤</h3>
           <ol class="steps" id="stSteps"></ol>
         </section>
+        <section class="card" id="stEditCard">
+          <h3>修改这一步 <small class="muted" id="stEditWhich"></small></h3>
+          <p class="muted small" id="stEditHint">选中列表里的一步（或折到这一步），如果是折叠步骤，可以调它的折角。</p>
+          <div class="row" id="stEditRow" hidden>
+            <label class="full" style="display:block">折角
+              <input type="range" id="stStepAngle" min="0" max="180" step="5" value="180" style="width:100%">
+              <b id="stStepAngleOut">180°</b>
+            </label>
+            <div style="display:flex;gap:6px;margin-top:6px">
+              <button class="btn sm" id="stStepAngle180">折平 180°</button>
+              <button class="btn sm" id="stStepAngle90">垂直 90°</button>
+              <button class="btn sm ghost" id="stStepAngle60">浅折 60°</button>
+            </div>
+          </div>
+        </section>
         <section class="card">
           <h3>纸张颜色</h3>
           <div class="color-row"><label>正面 <input type="color" id="stFront" value="#e8553d"></label><label>背面 <input type="color" id="stBack" value="#f6f1e7"></label></div>
@@ -318,6 +333,7 @@
           <p><b>分步折叠</b>：多条折痕可以分先后（例如三折页先折一道再折另一道），拖动滑块时会按顺序逐道折完，纸片不会同时往同一处扫过去。</p>
           <p><b>折痕设计</b>：在 2D 折痕图编辑器中绘制山折（红）、谷折（蓝）、平面线、自由铰链、剪切线，右侧实时 3D 预览；编辑器会检查每个内部顶点是否满足平折条件。</p>
           <p><b>分步折叠</b>：像折真纸一样一步步折：画折线、点到点、边到边，可翻面/旋转，跟随教程完成纸飞机、纸船等作品，并可把折痕发送到 3D 仿真。</p>
+          <p><b>修改这一步</b>：折到某一步（或在右侧「步骤」里点它）后，下方「修改这一步」可以调这一折的<b>折角</b>（0–180°，也可用「折平 180° / 垂直 90° / 浅折 60°」快捷按钮）。折角会写进这一步和它的折痕（`foldAngle`），并影响 3D 展开展示与发送到 3D 的折叠树；步骤列表里带折角的步骤会显示角度徽标。</p>
           <p><b>选纸</b>：分步折叠工具栏「纸张」可选<b>正方形 1:1</b> 或 <b>A4（1:√2）</b>，换纸会按所选尺寸新建一张纸；载入教程时会自动切到该教程用的纸（滑翔机是 A4 比例）。折痕设计里也有「新建正方形纸 / 新建 A4 比例纸 / 自定义比例」。</p>
           <p><b>3D 展开展示</b>：折完的作品（如纸飞机、滑翔机）点工具栏「3D 展开展示」，会把折好的成品按三维姿态展开（机翼张开、机身撑起），可以拖动旋转看各个角度；再点一次回到平面。</p>
           <p><b>分步成品进 3D</b>：在分步折叠里点「折痕 → 3D 仿真」，3D 模型是<b>直接从折叠树生成</b>的（不是从折痕图反推），所以多层重叠也不会算歪；拖动「折叠程度」就能看着纸一道一道折起来，展开 0% 是整张纸、100% 是成品。这种模型是"姿态回放"，不走动力学（自碰撞、拖拽对它不生效）。</p>

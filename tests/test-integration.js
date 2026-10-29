@@ -111,6 +111,31 @@ var fails = 0; function ok(c, m) { console.log((c ? 'ok   ' : 'FAIL ') + m); if 
   ok(Math.abs(papers.a4[0] - Math.SQRT1_2) < 2e-3 && Math.abs(papers.a4[1] - 1) < 1e-9, '选 A4 后纸张为 1:√2（' + papers.a4.join(' × ') + '）');
   ok(papers.square[0] === 1 && papers.square[1] === 1, '选正方形后纸张为 1:1');
 
+  // 9. step editing: adjust a fold step's angle
+  await page.evaluate(function () {
+    document.querySelector('.mode-tab[data-mode="step"]').click();
+    var items = Array.from(document.querySelectorAll('#tutList .lib-item'));
+    items.filter(function (b) { return b.dataset.tut === 'glider'; })[0].click();
+  });
+  await sleep(1200);
+  var edit = await page.evaluate(function () {
+    var v = window.OrigamiStudio.stepView;
+    v.gotoStep(12);
+    var before = v.getSteps()[11].op.angle;
+    v.setStepAngle(11, 120);
+    var at120 = v.getSteps()[11].op.angle;
+    var cp = v.getCreasePattern();
+    var n120 = cp.lines.filter(function (l) { return l.type !== 'B' && l.foldAngle === 120; }).length;
+    v.setStepAngle(11, 180);
+    var after180 = v.getSteps()[11].op.angle;
+    return { before: before, at120: at120, n120: n120, after180: after180 === undefined ? 'undefined' : after180, steps: v.getSteps().length };
+  });
+  ok(edit.before === 90, '第 12 步初始折角 90°');
+  ok(edit.at120 === 120, '把第 12 步折角改成 120° 生效');
+  ok(edit.n120 > 0, '折痕记录随之更新为 foldAngle=120（' + edit.n120 + ' 条）');
+  ok(edit.after180 === 'undefined', '折角设回 180° 时恢复默认折平');
+  ok(edit.steps === 12, '改折角不会丢步骤（' + edit.steps + ' 步）');
+
   ok(!logs.length, 'no console errors ' + logs.join(' | '));
   await browser.close();
   console.log(fails ? fails + ' FAILED' : 'ALL OK');
