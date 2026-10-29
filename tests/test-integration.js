@@ -195,6 +195,21 @@ var fails = 0; function ok(c, m) { console.log((c ? 'ok   ' : 'FAIL ') + m); if 
   ok(exports.same, '分步折叠 / 3D 仿真 两种模式导出的工程文件内容一致');
   ok(Math.abs(exports.w - Math.SQRT1_2) < 1e-9, '导出纸张尺寸取分步折叠的纸（' + exports.w.toFixed(3) + '）');
 
+  // 11. GitHub source entry points
+  var gh = await page.evaluate(function () {
+    var btn = document.getElementById('btnGithub');
+    var inHelp = document.querySelector('#helpModal a[href*="github.com/zdwalter/origami-studio"]');
+    return {
+      btn: btn ? btn.getAttribute('href') : null,
+      btnTarget: btn ? btn.getAttribute('target') : null,
+      btnVisible: btn ? btn.getBoundingClientRect().width > 0 : false,
+      helpLink: inHelp ? inHelp.getAttribute('href') : null
+    };
+  });
+  ok(gh.btn === 'https://github.com/zdwalter/origami-studio' && gh.btnVisible, '顶栏有 GitHub 源码按钮（新窗口打开）');
+  ok(gh.btnTarget === '_blank', 'GitHub 按钮在新标签页打开');
+  ok(gh.helpLink === gh.btn, '帮助面板里也有源码地址');
+
   ok(!logs.length, 'no console errors ' + logs.join(' | '));
   await browser.close();
   console.log(fails ? fails + ' FAILED' : 'ALL OK');

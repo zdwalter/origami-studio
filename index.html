@@ -41,6 +41,7 @@
       </div>
       <button class="btn ghost" id="btnSaveLib" title="保存到我的作品 (Ctrl+S)"><svg viewBox="0 0 24 24"><path d="M5 3h11l3 3v15H5z M8 3v6h8V3 M8 21v-7h8v7"/></svg><span>保存</span></button>
       <button class="btn icon ghost" id="btnTheme" title="切换深色/浅色"><svg viewBox="0 0 24 24"><path d="M21 13A9 9 0 1 1 11 3a7 7 0 0 0 10 10z"/></svg></button>
+      <a class="btn ghost" id="btnGithub" href="https://github.com/zdwalter/origami-studio" target="_blank" rel="noopener" title="源码在 GitHub：fork 下来自己改"><svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.7c-2.78.6-3.37-1.34-3.37-1.34-.45-1.16-1.11-1.47-1.11-1.47-.9-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.89 1.52 2.34 1.08 2.91.83.09-.65.35-1.09.63-1.34-2.22-.25-4.55-1.11-4.55-4.94 0-1.09.39-1.98 1.03-2.68-.1-.26-.45-1.27.1-2.65 0 0 .84-.27 2.75 1.02a9.5 9.5 0 0 1 5 0c1.91-1.29 2.75-1.02 2.75-1.02.55 1.38.2 2.39.1 2.65.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.69-4.57 4.94.36.31.68.92.68 1.85v2.74c0 .27.18.58.69.48A10 10 0 0 0 12 2z"/></svg><span>源码</span></a>
       <button class="btn icon ghost" id="btnHelp" title="帮助 (?)"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1 .9-1 1.7v.5 M12 17h.01"/></svg></button>
     </div>
   </header>
@@ -361,6 +362,18 @@
           <p><b>前川定理（Maekawa）</b>：平折顶点处山折与谷折数量相差 2，即 |M − V| = 2。</p>
           <p><b>川崎定理（Kawasaki）</b>：平折顶点周围相间的扇形角之和均为 180°。</p>
           <p>编辑器中绿色圆圈表示该顶点满足两条定理，红色表示不满足（鼠标悬停查看误差）。局部可平折并不保证整体可平折（还需层序不自交）。</p>
+        </section>
+        <section>
+          <h4>源码 · 自己改</h4>
+          <p>全部源码在 GitHub：<a href="https://github.com/zdwalter/origami-studio" target="_blank" rel="noopener">github.com/zdwalter/origami-studio</a>。纯静态 HTML/CSS/JS，没有构建依赖，fork 下来直接改 <code>js/</code> 下的文件、刷新页面即可。</p>
+          <ul>
+            <li><code>js/stepfold.js</code> 分步折叠引擎 + 折叠树转 3D 模型</li>
+            <li><code>js/stepmodels.js</code> 教程步骤数据（要加新教程就改这里）</li>
+            <li><code>js/patterns.js</code> 图案库折痕数据</li>
+            <li><code>js/solver.js</code> 杆-铰链动力学求解器　<code>js/renderer.js</code> WebGL 渲染</li>
+            <li><code>python3 tools/build.py</code> 打单文件版（<code>dist/origami-studio.html</code>），双击即可离线用</li>
+          </ul>
+          <p class="muted small">欢迎提 issue / PR；也可以直接 fork 一份改成自己的作品集。</p>
         </section>
         <section>
           <h4>文件格式</h4>
