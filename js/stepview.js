@@ -105,21 +105,31 @@
       return [W / 2 + x1 * s, H / 2 + y2 * s, z2];
     }
     var items = [];
+    var LIGHT = (function () { var l = [0.35, -0.45, 0.82], n = Math.sqrt(l[0] * l[0] + l[1] * l[1] + l[2] * l[2]); return [l[0] / n, l[1] / n, l[2] / n]; })();
     pose.polys.forEach(function (poly) {
-      if (!poly.pts.length) return;
+      if (poly.pts.length < 3) return;
       var pr = poly.pts.map(project);
       var zs = 0;
       pr.forEach(function (q) { zs += q[2]; });
       zs /= pr.length;
       var ax = pr[1][0] - pr[0][0], ay = pr[1][1] - pr[0][1], bx = pr[2][0] - pr[0][0], by = pr[2][1] - pr[0][1];
       var cross = ax * by - ay * bx;
-      items.push({ pr: pr, z: zs, front: cross < 0, area: Math.abs(cross) });
+      // 用三维法向做朗伯光照，让立起来的机翼看得出厚度方向
+      var A = poly.pts[0], B = poly.pts[1], C = poly.pts[2];
+      var u = [B[0] - A[0], B[1] - A[1], B[2] - A[2]], v = [C[0] - A[0], C[1] - A[1], C[2] - A[2]];
+      var n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
+      var nl = Math.sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]) || 1;
+      n = [n[0] / nl, n[1] / nl, n[2] / nl];
+      // 把法向旋到相机空间
+      var n1x = cy * n[0] - sy * n[1], n1y = sy * n[0] + cy * n[1], n1z = n[2];
+      var n2y = cp * n1y - sp * n1z, n2z = sp * n1y + cp * n1z;
+      var lam = Math.abs(n1x * LIGHT[0] + n2y * LIGHT[1] + n2z * LIGHT[2]);
+      items.push({ pr: pr, z: zs, front: cross < 0, lit: 0.72 + 0.42 * lam });
     });
     items.sort(function (a, b) { return a.z - b.z; });
     items.forEach(function (d) {
       var rgb = d.front ? self.front : self.back;
-      // 简单光照：法向朝上打亮一点
-      var lit = d.front ? 1 : 0.99;
+      var lit = d.lit;
       ctx.beginPath();
       d.pr.forEach(function (q, i) { if (i) ctx.lineTo(q[0], q[1]); else ctx.moveTo(q[0], q[1]); });
       ctx.closePath();

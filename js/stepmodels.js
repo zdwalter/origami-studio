@@ -135,7 +135,7 @@
   (function () {
     models.push({
       id: 'glider', name: '滑翔机（长方形纸）', difficulty: 3, frontColor: '#63a83a',
-      displayAngles: { 5: 168, 8: 172, 9: 148, 11: 148 },
+      displayAngles: { 5: 168, 8: 172, 9: 90, 11: 90 },
       description: '用一张长方形纸（1:√2，A4 比例）折的滑翔机：中折痕 → 两个上角折到中线 → 两条斜边折到中线 → 机头折下 → 对折 → 两侧机翼分别沿斜线折下（只折连通的整叠翻片）。',
       width: Math.SQRT1_2, height: 1,
       steps: [
