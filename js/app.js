@@ -381,6 +381,48 @@
     if (!box.children.length) box.innerHTML = '<div class="empty">没有匹配的图案</div>';
     markActiveLib();
   }
+  /** 分步教程缩略图：把成品姿态投影到 52×52 的小画布上 */
+  function drawTutorialThumb(canvas, model) {
+    var ctx = canvas.getContext('2d'), W = canvas.width, H = canvas.height;
+    ctx.clearRect(0, 0, W, H);
+    var pm;
+    try { pm = StepFold.buildPoseModel(model.steps, { width: model.width, height: model.height }); }
+    catch (e) { return; }
+    var b = pm.bounds();
+    var cx = (b.min[0] + b.max[0]) / 2, cy = (b.min[1] + b.max[1]) / 2;
+    var span = Math.max(b.max[0] - b.min[0], b.max[1] - b.min[1]) || 1;
+    var sc = (W - 10) / span, P = pm.positions;
+    pm.mesh.tris.forEach(function (t) {
+      var zs = 0;
+      var pts = t.map(function (i) {
+        zs += P[i * 3 + 2];
+        return [W / 2 + (P[i * 3] - cx) * sc, H / 2 - (P[i * 3 + 1] - cy) * sc];
+      });
+      ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]); ctx.lineTo(pts[1][0], pts[1][1]); ctx.lineTo(pts[2][0], pts[2][1]); ctx.closePath();
+      ctx.fillStyle = zs / 3 > 0 ? '#e8553d' : '#f6f1e7'; ctx.fill();
+      ctx.strokeStyle = 'rgba(90,70,55,0.35)'; ctx.lineWidth = 0.5; ctx.stroke();
+    });
+  }
+  function renderTutorials() {
+    var box = $('tutList');
+    if (!box) return;
+    box.innerHTML = '';
+    StepModels.list().forEach(function (meta) {
+      var model = StepModels.get(meta.id);
+      var b = document.createElement('button');
+      b.className = 'lib-item'; b.dataset.tut = meta.id; b.title = meta.description || '';
+      b.innerHTML = '<canvas width="52" height="52"></canvas><div><div class="nm">' + esc(meta.name) + ' <span class="stars">' + stars(meta.difficulty) + '</span></div><div class="ds">' + model.steps.length + ' 步 · ' + esc((meta.description || '').slice(0, 18)) + '…</div></div>';
+      b.addEventListener('click', function () {
+        switchMode('step');
+        var sel = $('stepModelSel');
+        sel.value = meta.id; sel.dispatchEvent(new Event('change'));
+        toast('开始教程：' + meta.name);
+      });
+      box.appendChild(b);
+      var c = b.querySelector('canvas');
+      requestAnimationFrame(function () { drawTutorialThumb(c, model); });
+    });
+  }
   function markActiveLib() {
     $$('#libList .lib-item').forEach(function (el) { el.classList.toggle('active', el.dataset.id === S.presetId); });
   }
@@ -875,6 +917,7 @@
       var deg = S.stepView.setFoldAngle(+this.value);
       toast(deg >= 180 ? '折角 180°：折平（常规折法）' : ('折角 ' + deg + '°：这一折只折到 ' + deg + '°，点「3D 展开展示」看三维姿态'));
     });
+    $('stDone3D').addEventListener('click', stepTo3D);
     $('st3D').addEventListener('click', function () {
       if (!S.stepView) return;
       var on = S.stepView.set3D(!S.stepView.show3d);
@@ -1031,7 +1074,9 @@
       $('thicknessRange').value = prefs.thickness; $('thicknessOut').textContent = prefs.thickness;
       if (S.solver) S.solver.params.thickness = prefs.thickness / 1000;
     }
-    if (prefs.mode && prefs.mode !== 'sim') switchMode(prefs.mode);
+    renderTutorials();
+    // 分步折叠是第一入口：没有明确选择时一律先进这里
+    switchMode(prefs.mode === 'design' ? 'design' : 'step');
     showBuildVer();
     checkForUpdate();
     requestAnimationFrame(frame);

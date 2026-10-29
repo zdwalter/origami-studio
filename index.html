@@ -8,7 +8,7 @@
 <link rel="stylesheet" href="css/app.css">
 </head>
 <body>
-<div id="app" class="app" data-mode="sim">
+<div id="app" class="app" data-mode="step">
   <!-- ============================================================ header -->
   <header class="topbar">
     <div class="brand">
@@ -16,9 +16,9 @@
       <div class="brand-text"><strong>纸境</strong><span>折纸仿真平台</span></div>
     </div>
     <nav class="modes" role="tablist" aria-label="工作模式">
-      <button class="mode-tab active" data-mode="sim" role="tab" aria-selected="true"><svg viewBox="0 0 24 24"><path d="M12 2 3 7v10l9 5 9-5V7z M3 7l9 5 9-5 M12 12v10"/></svg>3D 仿真</button>
-      <button class="mode-tab" data-mode="design" role="tab" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M3 3h18v18H3z M3 3l18 18 M21 3 3 21"/></svg>折痕设计</button>
-      <button class="mode-tab" data-mode="step" role="tab" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M4 4h16v16H4z M4 20 20 4"/><path d="M20 4v16H4" opacity=".4"/></svg>分步折叠</button>
+      <button class="mode-tab active" data-mode="step" role="tab" aria-selected="true" title="跟着教程一步一步折，折好再进 3D"><svg viewBox="0 0 24 24"><path d="M4 4h16v16H4z M4 20 20 4"/><path d="M20 4v16H4" opacity=".4"/></svg>① 分步折叠</button>
+      <button class="mode-tab" data-mode="sim" role="tab" aria-selected="false" title="把折好的纸放进 3D 仿真"><svg viewBox="0 0 24 24"><path d="M12 2 3 7v10l9 5 9-5V7z M3 7l9 5 9-5 M12 12v10"/></svg>② 3D 仿真</button>
+      <button class="mode-tab" data-mode="design" role="tab" aria-selected="false" title="自己画折痕图"><svg viewBox="0 0 24 24"><path d="M3 3h18v18H3z M3 3l18 18 M21 3 3 21"/></svg>③ 折痕设计</button>
     </nav>
     <div class="top-actions">
       <button class="btn ghost" id="btnImport" title="导入 SVG / FOLD / 项目文件 (Ctrl+O)"><svg viewBox="0 0 24 24"><path d="M12 3v12 M7 10l5 5 5-5 M4 17v3h16v-3"/></svg><span>导入</span></button>
@@ -49,10 +49,13 @@
     <!-- ============================================================ left: library -->
     <aside class="panel left" id="leftPanel">
       <div class="panel-tabs">
-        <button class="ptab active" data-ptab="lib">图案库</button>
+        <button class="ptab active" data-ptab="teach">教学</button>
         <button class="ptab" data-ptab="mine">我的作品 <span class="badge" id="mineCount">0</span></button>
       </div>
-      <div class="ptab-body" data-ptab-body="lib">
+      <div class="ptab-body" data-ptab-body="teach">
+        <div class="lib-group">分步教程 · 跟着画一步步折</div>
+        <div class="lib-list" id="tutList"></div>
+        <div class="lib-group">图案库 · 折痕图（可进 3D 仿真）</div>
         <div class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg><input id="libSearch" type="search" placeholder="搜索图案…" autocomplete="off"></div>
         <div class="chips" id="libCats"></div>
         <div class="lib-list" id="libList"></div>
@@ -196,7 +199,7 @@
           </label>
           <button class="btn primary sm" id="stTo3D" title="把当前折出的所有折痕发送到 3D 仿真">折痕 → 3D 仿真</button>
         </div>
-        <div class="step-canvas-wrap"><canvas id="stepCanvas" tabindex="0"></canvas><div class="hint" id="stStatus">拖出一条折线，再点击要翻折的一侧</div></div>
+        <div class="step-canvas-wrap"><canvas id="stepCanvas" tabindex="0"></canvas><div class="hint" id="stStatus">先从左侧「教学」选一个教程，或在纸上拖一条折线自己折</div></div>
       </div>
 
       <!-- fold control bar (sim + design) -->
@@ -221,7 +224,7 @@
       <!-- step mode panel -->
       <div class="step-panel" id="stepPanel">
         <section class="card">
-          <h3>教程模型</h3>
+          <h3>教程模型 <span class="muted small">（也可从左侧「教学」选）</span></h3>
           <select id="stepModelSel" class="full"></select>
           <p class="muted small" id="stepModelDesc"></p>
           <div class="step-nav">
@@ -230,6 +233,7 @@
             <button class="btn sm primary" id="stNext" title="下一步 (→)">下一步 ▶</button>
           </div>
           <button class="btn sm ghost full" id="stAuto">▶ 自动演示</button>
+          <button class="btn primary full" id="stDone3D" title="折好以后进 3D 仿真看成品">✔ 折好了 → 进入 3D 仿真</button>
         </section>
         <section class="card grow">
           <h3>步骤</h3>
