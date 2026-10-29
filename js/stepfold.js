@@ -692,24 +692,35 @@
     var nStage = foldCount;
 
     // 2) 建拓扑：每个纸片单独一套顶点（多层叠在一起时不能共用顶点）
-    var nodes2d = [], tris = [], owner = [], lineIdxData = [];
+    //    为了正/反面着色正确，所有纸片的多边形绕向都要和整张纸一致（否则会出现一块块反色）
+    var nodes2d = [], tris = [], owner = [], lineIdxData = [], reversed = [];
+    function signedArea(poly) {
+      var a = 0;
+      for (var i = 0; i < poly.length; i++) { var q = poly[i], r = poly[(i + 1) % poly.length]; a += q[0] * r[1] - r[0] * q[1]; }
+      return a / 2;
+    }
+    // 三维里 Y 轴取反（Y = -(y-cy)），所以绕向要反过来：这样平放时正面朝向观察者
+    var SHEET_SIGN = -(Math.sign(signedArea([[0, 0], [width, 0], [width, height], [0, height]])) || 1);
     function buildTopology() {
       nodes2d = []; tris = []; owner = []; lineIdxData = [];
       var flat = create({ width: width, height: height });
       steps.forEach(function (st) { var r = applyOp(flat, st.op); if (!r.error) flat = r.state; });
       flat.facets.forEach(function (f, fi) {
         var base = nodes2d.length;
-        f.poly.forEach(function (q) { nodes2d.push([q[0], q[1]]); owner.push(fi); });
-        for (var i = 1; i + 1 < f.poly.length; i++) tris.push([base, base + i, base + i + 1]);
+        var rev = Math.sign(signedArea(f.poly)) !== SHEET_SIGN;
+        reversed[fi] = rev;
+        var poly = rev ? f.poly.slice().reverse() : f.poly;
+        poly.forEach(function (q) { nodes2d.push([q[0], q[1]]); owner.push(fi); });
+        for (var i = 1; i + 1 < poly.length; i++) tris.push([base, base + i, base + i + 1]);
         // 折痕线（纸片边落在折痕上的）
-        for (var e = 0; e < f.poly.length; e++) {
-          var A = f.poly[e], B = f.poly[(e + 1) % f.poly.length];
+        for (var e = 0; e < poly.length; e++) {
+          var A = poly[e], B = poly[(e + 1) % poly.length];
           var mid = [(A[0] + B[0]) / 2, (A[1] + B[1]) / 2];
           for (var ci = 0; ci < flat.creases.length; ci++) {
             var c = flat.creases[ci], L = OG.dist(c.a, c.b);
             if (L < 1e-9) continue;
             if (Math.abs(OG.orient(c.a, c.b, mid)) / L < 1e-7 && OG.pointSegDist(A, c.a, c.b) < 1e-7 && OG.pointSegDist(B, c.a, c.b) < 1e-7) {
-              lineIdxData.push([base + e, base + (e + 1) % f.poly.length, c.type]);
+              lineIdxData.push([base + e, base + (e + 1) % poly.length, c.type]);
               break;
             }
           }
@@ -736,10 +747,17 @@
       var pose = poseAt(fp); lastPose = pose;
       var k = 0, fi = 0;
       // threeDPose 的 polys 顺序与 flat.facets 一致（都是 applyOp 重放的结果）
+      var EPS_LAYER = Math.min(width, height) * 0.0012;   // 每层微移一点，防止共面闪烁
       for (fi = 0; fi < pose.polys.length; fi++) {
-        var pts = pose.polys[fi].pts;
+        var polyP = pose.polys[fi];
+        var pts = polyP.pts;
+        if (reversed[fi]) pts = pts.slice().reverse();
+        var nrm = polyP.front || [0, 0, 1];
+        var off = (polyP.layer || 0) * EPS_LAYER;
         for (var i = 0; i < pts.length && k < n; i++) {
-          positions[k * 3] = pts[i][0]; positions[k * 3 + 1] = pts[i][1]; positions[k * 3 + 2] = pts[i][2];
+          positions[k * 3] = pts[i][0] + nrm[0] * off;
+          positions[k * 3 + 1] = pts[i][1] + nrm[1] * off;
+          positions[k * 3 + 2] = pts[i][2] + nrm[2] * off;
           k++;
         }
       }
@@ -762,7 +780,42 @@
       creaseError: function () { return 0; },
       strainMax: function () { return 0; },
       maxSpeed: function () { return 0; },
-      orient: function () { return this; },
+      orient: function (alpha) {
+        // 让模型的整体朝向转正（面积加权平均法向朝向观察者），避免折完后侧对着光、一片黑
+        alpha = alpha === undefined ? 0.12 : alpha;
+        var i, k, mn = [1e9, 1e9, 1e9], mx = [-1e9, -1e9, -1e9];
+        for (i = 0; i < n; i++) for (k = 0; k < 3; k++) { var t0 = positions[i * 3 + k]; if (t0 < mn[k]) mn[k] = t0; if (t0 > mx[k]) mx[k] = t0; }
+        var ctr = [(mn[0] + mx[0]) / 2, (mn[1] + mx[1]) / 2, (mn[2] + mx[2]) / 2];
+        var nrm = [0, 0, 0];
+        for (var t = 0; t < tris.length; t++) {
+          var A = tris[t][0] * 3, B = tris[t][1] * 3, C = tris[t][2] * 3;
+          var ux = positions[B] - positions[A], uy = positions[B + 1] - positions[A + 1], uz = positions[B + 2] - positions[A + 2];
+          var vx = positions[C] - positions[A], vy = positions[C + 1] - positions[A + 1], vz = positions[C + 2] - positions[A + 2];
+          nrm[0] += uy * vz - uz * vy; nrm[1] += uz * vx - ux * vz; nrm[2] += ux * vy - uy * vx;
+        }
+        var L = Math.sqrt(nrm[0] * nrm[0] + nrm[1] * nrm[1] + nrm[2] * nrm[2]);
+        if (L < 1e-9) return this;
+        nrm = [nrm[0] / L, nrm[1] / L, nrm[2] / L];
+        var up = [0, 0, 1];
+        var dot = Math.max(-1, Math.min(1, nrm[0] * up[0] + nrm[1] * up[1] + nrm[2] * up[2]));
+        var ang = Math.acos(dot) * alpha;
+        if (ang < 1e-5) return this;
+        var axis = [nrm[1] * up[2] - nrm[2] * up[1], nrm[2] * up[0] - nrm[0] * up[2], nrm[0] * up[1] - nrm[1] * up[0]];
+        var axL = Math.sqrt(axis[0] * axis[0] + axis[1] * axis[1] + axis[2] * axis[2]);
+        if (axL < 1e-9) return this;
+        axis = [axis[0] / axL, axis[1] / axL, axis[2] / axL];
+        var ca = Math.cos(ang), sa = Math.sin(ang), vv = 1 - ca;
+        var R = [ca + axis[0] * axis[0] * vv, axis[0] * axis[1] * vv - axis[2] * sa, axis[0] * axis[2] * vv + axis[1] * sa,
+          axis[1] * axis[0] * vv + axis[2] * sa, ca + axis[1] * axis[1] * vv, axis[1] * axis[2] * vv - axis[0] * sa,
+          axis[2] * axis[0] * vv - axis[1] * sa, axis[2] * axis[1] * vv + axis[0] * sa, ca + axis[2] * axis[2] * vv];
+        for (i = 0; i < n; i++) {
+          var x = positions[i * 3] - ctr[0], y = positions[i * 3 + 1] - ctr[1], z = positions[i * 3 + 2] - ctr[2];
+          positions[i * 3] = R[0] * x + R[1] * y + R[2] * z + ctr[0];
+          positions[i * 3 + 1] = R[3] * x + R[4] * y + R[5] * z + ctr[1];
+          positions[i * 3 + 2] = R[6] * x + R[7] * y + R[8] * z + ctr[2];
+        }
+        return this;
+      },
       reset: function () { this.setFoldPercent(1); return this; },
       strain: function () { return { max: 0, node: new Float32Array(n) }; },
       bounds: function () {
