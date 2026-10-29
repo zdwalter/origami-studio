@@ -189,6 +189,10 @@
           <button class="btn sm" id="stUnfoldAll" title="把纸重新打开铺平，折痕全部留下（可撤销）">展开复原</button>
           <button class="btn sm" id="stUnfoldOne" title="只打开最近折的那一下，折痕保留">打开上一折</button>
           <button class="btn sm" id="st3D" title="把折好的成品按折角展开成三维姿态（可拖动旋转）">3D 展开展示</button>
+          <label class="btn sm" id="st3DAngleWrap" hidden title="拖动调整展开角度">展开角度
+            <input type="range" id="st3DAngle" min="0" max="180" step="5" value="90" style="width:90px;margin-left:4px;vertical-align:middle">
+            <b id="st3DAngleOut" style="margin-left:4px">90°</b>
+          </label>
           <button class="btn primary sm" id="stTo3D" title="把当前折出的所有折痕发送到 3D 仿真">折痕 → 3D 仿真</button>
         </div>
         <div class="step-canvas-wrap"><canvas id="stepCanvas" tabindex="0"></canvas><div class="hint" id="stStatus">拖出一条折线，再点击要翻折的一侧</div></div>

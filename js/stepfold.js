@@ -499,7 +499,7 @@
     var st = create({ width: opts.width || 1, height: opts.height || 1 });
     var M = {};                                     // facet id → M3
     st.facets.forEach(function (f) { M[f.id] = m3ident(); });
-    var undoStack = [];
+    var undoStack = [], hinge = null, mirrorGroup = null;
     (steps || []).forEach(function (step, i) {
       var op = step.op || step;
       var before = st, r = applyOp(st, op);
@@ -531,10 +531,42 @@
           var p1 = m3apply(M[parentFacet.id], [pa[0], pa[1], 0]), p2 = m3apply(M[parentFacet.id], [pb[0], pb[1], 0]);
           var dir = OG3.sub(p2, p1);
           if (Math.sqrt(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]) > 1e-9) {
-            var sign = op.kind === 'mountain' ? -1 : 1;
+            // 旋转方向要看“纸的正面朝哪边”：谷折让翻片正面向着被折过去的那面合拢，
+            // 山折相反。用一个小角度试探法向的走向来决定符号（翻过面后仍然正确）。
+            var sign = 1;
+            try {
+              var nFlap = (function (fid) {
+                var Mf = M[fid] || m3ident();
+                return OG3.norm([Mf.R[2], Mf.R[5], Mf.R[8]]);      // 纸面正面法向在三维中的方向
+              })(mv);
+              var nBase = null;
+              for (var q2i = 0; q2i < before.facets.length; q2i++) {
+                var bf = before.facets[q2i];
+                if ((r.moved || []).indexOf(bf.id) >= 0) continue;  // 找一片不动的（被折过去的基准面）
+                var Mb = M[bf.id];
+                if (Mb) { nBase = OG3.norm([Mb.R[2], Mb.R[5], Mb.R[8]]); break; }
+              }
+              if (nBase) {
+                var eps = 3, u2 = OG3.norm(dir);
+                var Rt = m3rotAxis([0, 0, 0], u2, eps);
+                var nTry = [Rt.R[0] * nFlap[0] + Rt.R[1] * nFlap[1] + Rt.R[2] * nFlap[2],
+                  Rt.R[3] * nFlap[0] + Rt.R[4] * nFlap[1] + Rt.R[5] * nFlap[2],
+                  Rt.R[6] * nFlap[0] + Rt.R[7] * nFlap[1] + Rt.R[8] * nFlap[2]];
+                var dDot = OG3.dot(nTry, nBase) - OG3.dot(nFlap, nBase);
+                // 谷折：正面法向要远离基准面正面；山折：靠近
+                if (op.kind === 'mountain' ? dDot < 0 : dDot > 0) sign = -1;
+              } else {
+                sign = op.kind === 'mountain' ? -1 : 1;
+              }
+            } catch (e) { sign = op.kind === 'mountain' ? -1 : 1; }
+            if (op.openSign === -1) sign = -sign;      // 模型可以逐折指定打开方向
             var Rm = m3rotAxis(p1, dir, sign * ang);
-            var ids = {};
-            (r.moved || []).forEach(function (id) { ids[id] = 1; M[id] = m3mul(Rm, M[id] || m3ident()); });
+            if ((opts.open && opts.open.step === i) || (opts.openByLine && opts.openByLine.step === i)) {
+              hinge = { p: p1, d: dir, ids: (r.moved || []).slice() };
+            }
+            if (opts.mirrorStep === i) { mirrorGroup = (r.moved || []).slice(); }
+      if (opts.mirrorHalf === i) { mirrorGroup = (r.moved || []).slice(); }
+            (r.moved || []).forEach(function (id) { M[id] = m3mul(Rm, M[id] || m3ident()); });
             undoStack.push({ ids: r.moved || [], R: m3rotAxis(p1, dir, -sign * ang) });
           }
         }
@@ -553,6 +585,62 @@
       }
       st = after;
     });
+    // 「沿机身线对称对开」：按纸片在机身线两侧的侧别，分别转 ±angle/2，
+    // 得到左右对称的两翼（两翼之间夹角 = angle）
+    if (opts.openByLine && hinge) {
+      var ang2 = (opts.openByLine.angle === undefined ? 90 : opts.openByLine.angle);
+      var hf = ang2 / 2, dh = OG3.norm(hinge.d);
+      // 机体法向：取面积加权平均的正面向上的法向
+      var nAvg = [0, 0, 0];
+      Object.keys(M).forEach(function (k) {
+        var idq = +k; if (!M[idq]) return;
+        var fq = st.facets.filter(function (f) { return f.id === idq; })[0]; if (!fq) return;
+        var Mq = M[idq];
+        nAvg[0] += Mq.R[2]; nAvg[1] += Mq.R[5]; nAvg[2] += Mq.R[8];
+      });
+      nAvg = OG3.norm(nAvg);
+      var nSide = OG3.norm(OG3.cross(dh, nAvg));      // 垂直于机身线、躺在机体平面里
+      var Rp = m3rotAxis(hinge.p, dh, hf), Rn = m3rotAxis(hinge.p, dh, -hf);
+      Object.keys(M).forEach(function (k) {
+        var idz = +k; if (!M[idz]) return;
+        var fz = st.facets.filter(function (f) { return f.id === idz; })[0]; if (!fz) return;
+        var c3 = [0, 0, 0];
+        fz.poly.forEach(function (q) { var pt = m3apply(M[idz], [q[0], q[1], 0]); for (var i = 0; i < 3; i++) c3[i] += pt[i] / fz.poly.length; });
+        var sideSign = (c3[0] - hinge.p[0]) * nSide[0] + (c3[1] - hinge.p[1]) * nSide[1] + (c3[2] - hinge.p[2]) * nSide[2];
+        M[idz] = m3mul(sideSign >= 0 ? Rp : Rn, M[idz]);
+      });
+    }
+    // 「像翻书一样对开」：把对折那一步的翻片与其余纸片分别转 ±angle/2，
+    // 得到左右对称的两翼（两翼之间夹角 = angle）
+    if (opts.open && hinge && hinge.ids.length) {
+      var half = (opts.open.angle === undefined ? 90 : opts.open.angle) / 2;
+      var dnorm = OG3.norm(hinge.d);
+      var Rh = m3rotAxis(hinge.p, dnorm, half), Rl = m3rotAxis(hinge.p, dnorm, -half);
+      var idSet = {};
+      hinge.ids.forEach(function (id) { idSet[id] = 1; });
+      Object.keys(M).forEach(function (k) {
+        var id2 = +k;
+        if (!M[id2]) return;
+        M[id2] = m3mul(idSet[id2] ? Rh : Rl, M[id2]);
+      });
+    }
+    // 两翼对称：把「另一侧机翼」那一步折动的纸片按机体中面镜像到对侧，
+    // 这样两翼才会一边一片，而不是折到同一侧去。
+    if (mirrorGroup && mirrorGroup.length) {
+      var idm = {}, sumX = 0, cnt2 = 0;
+      mirrorGroup.forEach(function (id) { idm[id] = 1; });
+      // 中面位置 = 除这一组之外所有纸片的 x 均值
+      Object.keys(M).forEach(function (k) {
+        var id3 = +k;
+        if (idm[id3] || !M[id3]) return;
+        var f3 = st.facets.filter(function (f) { return f.id === id3; })[0];
+        if (!f3) return;
+        f3.poly.forEach(function (q) { sumX += m3apply(M[id3], [q[0], q[1], 0])[0]; cnt2++; });
+      });
+      var x0 = cnt2 ? sumX / cnt2 : 0;
+      var Mrefl = { R: [-1, 0, 0, 0, 1, 0, 0, 0, 1], t: [2 * x0, 0, 0] };
+      mirrorGroup.forEach(function (id) { if (M[id]) M[id] = m3mul(Mrefl, M[id]); });
+    }
     var polys = [], mn = [1e9, 1e9, 1e9], mx = [-1e9, -1e9, -1e9];
     st.facets.forEach(function (f) {
       var Mf = M[f.id] || m3ident();

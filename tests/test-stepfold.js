@@ -118,7 +118,20 @@ SM.list().forEach(function (meta) {
   var flat = SF.threeDPose(g.steps, { width: g.width, height: g.height, angles: flatAngles2 });
   ok(Math.abs((flat.max[2] - flat.min[2])) < 1e-6, '3D 展示姿态：全部按 180° 时仍是平的');
   // 折角写在 fold 操作里（op.angle）也生效
-  ok(g.steps.filter(function (s) { return s.op.angle === 90; }).length === 2, '滑翔机两侧机翼记录折角 90°（op.angle）');
+  // 展开展示：沿机身线对称对开 90°（两翼各 45°）
+  ok(!!g.displayOpen && g.displayOpen.angle === 90, '滑翔机配置对称对开展示（两翼之间 90°）');
+  var pg2 = SF.threeDPose(g.steps, { width: g.width, height: g.height, angles: (function () { var a2 = {}; g.steps.forEach(function (_, i2) { a2[i2] = 180; }); return a2; })(), openByLine: g.displayOpen });
+  ok(Math.abs((pg2.max[2] - pg2.min[2]) - 0.5) < 0.08, '滑翔机对称对开后两翼张开（z 跨度 ' + (pg2.max[2] - pg2.min[2]).toFixed(3) + '）');
+  // 左右两半应基本对称
+  var semi = 0;
+  pg2.polys.forEach(function (p) {
+    var a3 = p.pts[0], b3 = p.pts[1], c3 = p.pts[2];
+    var u3 = [b3[0] - a3[0], b3[1] - a3[1], b3[2] - a3[2]], v3 = [c3[0] - a3[0], c3[1] - a3[1], c3[2] - a3[2]];
+    var n3 = [u3[1] * v3[2] - u3[2] * v3[1], u3[2] * v3[0] - u3[0] * v3[2], u3[0] * v3[1] - u3[1] * v3[0]];
+    var L3 = Math.hypot(n3[0], n3[1], n3[2]) || 1;
+    if (Math.abs(n3[2] / L3) > 0.3) semi++;
+  });
+  ok(semi > 20, '滑翔机对开后两侧都有立起来的翼面（' + semi + ' 片）');
 })();
 
 // ---- 展开复原：几何回到整张纸，折痕全部留下

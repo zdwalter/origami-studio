@@ -820,6 +820,11 @@
     $('stRotR').addEventListener('click', function () { if (S.stepView) S.stepView.rotate(45); });
     $('stReset').addEventListener('click', function () { if (S.stepView) { $('stepModelSel').value = ''; S.stepView.reset(1, 1); $('stepModelDesc').textContent = ''; renderStepList(); } });
     $('stTo3D').addEventListener('click', stepTo3D);
+    $('st3DAngle').addEventListener('input', function () {
+      if (!S.stepView) return;
+      S.stepView.setDisplayAngle(+this.value);
+      $('st3DAngleOut').textContent = this.value + '°';
+    });
     $('stUnfoldAll').addEventListener('click', function () {
       if (!S.stepView) return;
       if (S.stepView.show3d) { S.stepView.set3D(false); this.classList.remove('primary'); $('st3D').classList.remove('primary'); $('st3D').textContent = '3D 展开展示'; }
@@ -839,6 +844,7 @@
       var on = S.stepView.set3D(!S.stepView.show3d);
       this.classList.toggle('primary', on);
       this.textContent = on ? '← 回到平面' : '3D 展开展示';
+      $('st3DAngleWrap').hidden = !on;
     });
     $('stepModelSel').addEventListener('change', function () {
       var v = S.stepView; if (!v) return;

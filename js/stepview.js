@@ -95,6 +95,8 @@
   P.setDisplayAngle = function (deg) { this.angleOverride = (deg === null || deg === undefined) ? null : +deg; this.dirty = true; };
 
   /** 这个作品能不能展开展示（有折角信息） */
+  P.hasOpenMode = function () { return !!(this.model && (this.model.displayOpen || this.model.displayAngles)); };
+
   P.canShow3D = function () {
     var m = this.model, self2 = this;
     if (!m || !this.steps.length) return false;
@@ -124,8 +126,16 @@
       if (base < 180 && self0.angleOverride != null) base = self0.angleOverride;
       angles[i] = base;
     });
+    var openOpt = null;
+    if (m.displayOpen) {
+      var o = { step: m.displayOpen.step, angle: m.displayOpen.angle === undefined ? 90 : m.displayOpen.angle };
+      if (self0.angleOverride != null) o.angle = self0.angleOverride;
+      openOpt = o;
+      angles = {};   // 对称对开时，其余折痕都折平
+      this.steps.forEach(function (s3, i3) { angles[i3] = (m.displayAngles && m.displayAngles[i3] !== undefined) ? m.displayAngles[i3] : 180; });
+    }
     var pose = SF.threeDPose(this.steps.map(function (s2) { return { op: s2.op }; }), {
-      width: m.width || 1, height: m.height || 1, angles: angles
+      width: m.width || 1, height: m.height || 1, angles: angles, openByLine: openOpt || undefined
     });
     var mn = pose.min, mx = pose.max;
     var size = Math.max(mx[0] - mn[0], mx[1] - mn[1], mx[2] - mn[2], 1e-3);
