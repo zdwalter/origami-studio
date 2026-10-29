@@ -10,11 +10,13 @@
   var M4 = global.OG.M4, V3 = global.OG.V3;
 
   var VS = [
-    'attribute vec3 aPos; attribute vec3 aNrm; attribute vec2 aUV; attribute vec3 aCol; attribute float aBias;',
-    'uniform mat4 uMVP; uniform mat4 uModel;',
+    'attribute vec3 aPos; attribute vec3 aNrm; attribute vec2 aUV; attribute vec3 aCol; attribute float aBias; attribute vec3 aStack;',
+    'uniform mat4 uMVP; uniform mat4 uModel; uniform vec3 uEye;',
     'varying vec3 vNrm; varying vec2 vUV; varying vec3 vCol; varying vec3 vWorld;',
     'void main(){ vec4 w = uModel*vec4(aPos,1.0); vWorld=w.xyz; vNrm=mat3(uModel)*aNrm; vUV=aUV; vCol=aCol;',
-    '  gl_Position=uMVP*vec4(aPos,1.0); gl_Position.z += aBias * gl_Position.w; }'
+    '  vec3 viewDir = normalize(uEye-w.xyz);',
+    '  float layerDepth = -2e-4 * dot(mat3(uModel)*aStack, viewDir);',
+    '  gl_Position=uMVP*vec4(aPos,1.0); gl_Position.z += (aBias+layerDepth) * gl_Position.w; }'
   ].join('\n');
   var FS = [
     'precision highp float;',
@@ -140,6 +142,8 @@
     this.buf.bias = this.buf.bias || gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, this.buf.bias); gl.bufferData(gl.ARRAY_BUFFER, this.biasArr, gl.STATIC_DRAW);
     this.fBias = null;
+    this.stackArr = mesh.stack && mesh.stack.length === nv * 3 ? mesh.stack : new Float32Array(nv * 3);
+    this.buf.stack = this.buf.stack || gl.createBuffer();
     var idx = this.uint ? new Uint32Array(mesh.indices) : new Uint16Array(mesh.indices);
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.buf.idx); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, idx, gl.STATIC_DRAW);
     this.nIdx = idx.length;
@@ -192,6 +196,7 @@
     }
     if (this.flatShading) this._flatten(pos);
     else {
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.buf.stack); gl.bufferData(gl.ARRAY_BUFFER, this.stackArr, gl.DYNAMIC_DRAW);
       gl.bindBuffer(gl.ARRAY_BUFFER, this.buf.pos); gl.bufferData(gl.ARRAY_BUFFER, pos, gl.DYNAMIC_DRAW);
       gl.bindBuffer(gl.ARRAY_BUFFER, this.buf.nrm); gl.bufferData(gl.ARRAY_BUFFER, nrm, gl.DYNAMIC_DRAW);
     }
@@ -216,6 +221,15 @@
       gl.bindBuffer(gl.ARRAY_BUFFER, this.fBuf.bias); gl.bufferData(gl.ARRAY_BUFFER, this.fBias, gl.STATIC_DRAW);
       this._flatColors();
     }
+    if (!this.fStack || this.fStack.length !== n * 3) this.fStack = new Float32Array(n * 3);
+    this.fBuf.stack = this.fBuf.stack || gl.createBuffer();
+    for (var si = 0; si < n; si++) {
+      var source = I[si] * 3;
+      this.fStack[si * 3] = this.stackArr[source];
+      this.fStack[si * 3 + 1] = this.stackArr[source + 1];
+      this.fStack[si * 3 + 2] = this.stackArr[source + 2];
+    }
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.fBuf.stack); gl.bufferData(gl.ARRAY_BUFFER, this.fStack, gl.DYNAMIC_DRAW);
     var P = this.fPos, N = this.fNrm;
     for (var t = 0; t < n; t += 3) {
       var a = I[t] * 3, b = I[t + 1] * 3, c = I[t + 2] * 3;
@@ -361,6 +375,7 @@
       gl.bindBuffer(gl.ARRAY_BUFFER, this.fBuf.uv); this._attr(pp, 'aUV', 2);
       gl.bindBuffer(gl.ARRAY_BUFFER, this.fBuf.col); this._attr(pp, 'aCol', 3);
       gl.bindBuffer(gl.ARRAY_BUFFER, this.fBuf.bias); this._attr(pp, 'aBias', 1);
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.fBuf.stack); this._attr(pp, 'aStack', 3);
       gl.drawArrays(gl.TRIANGLES, 0, this.nIdx);
     } else {
       gl.bindBuffer(gl.ARRAY_BUFFER, this.buf.pos); this._attr(pp, 'aPos', 3);
@@ -368,6 +383,7 @@
       gl.bindBuffer(gl.ARRAY_BUFFER, this.buf.uv); this._attr(pp, 'aUV', 2);
       gl.bindBuffer(gl.ARRAY_BUFFER, this.buf.col); this._attr(pp, 'aCol', 3);
       gl.bindBuffer(gl.ARRAY_BUFFER, this.buf.bias); this._attr(pp, 'aBias', 1);
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.buf.stack); this._attr(pp, 'aStack', 3);
       gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.buf.idx);
       gl.drawElements(gl.TRIANGLES, this.nIdx, this.uint ? gl.UNSIGNED_INT : gl.UNSIGNED_SHORT, 0);
     }

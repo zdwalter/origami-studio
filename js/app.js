@@ -133,7 +133,8 @@
     if (mesh.lineIdx && mesh.lineIdx.length) lineIdx = mesh.lineIdx.slice();      // 折叠树直接生成的模型自带折痕线
     else mesh.edges.forEach(function (e) { if (e.line) lineIdx.push([e.n[0], e.n[1], e.type]); });
     var out = { positions: solver.positions, uvs: uvs, indices: idx, lineIdx: lineIdx };
-    if (mesh.bias) out.bias = mesh.bias;      // 折叠树模型：叠层深度偏置（几何不偏移）
+    if (mesh.stack) out.stack = mesh.stack;    // 动态当前层序，与相机方向一起决定遮挡
+    if (mesh.bias) out.bias = mesh.bias;      // 兼容旧的静态深度偏置
     if (mesh.ambient !== undefined) out.ambient = mesh.ambient;   // 折叠树模型：颜色不被光照改变
     if (mesh.colors) out.colors = mesh.colors;                   // 折叠树模型：逐片固定纸色
     return out;

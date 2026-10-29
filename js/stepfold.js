@@ -714,18 +714,30 @@
 
     // 拓扑：最终状态的纸片（每片独立顶点）
     var flat = create({ width: width, height: height });
-    steps.forEach(function (st) { var r = applyOp(flat, st.op); if (!r.error) flat = r.state; });
+    var prefixStates = [flat];
+    steps.forEach(function (st) {
+      var r = applyOp(flat, st.op);
+      if (!r.error) flat = r.state;
+      prefixStates.push(flat);
+    });
+    // Map final subdivisions to the current coarser material facets at each boundary.
+    var currentLayers = prefixStates.map(function (state) {
+      return flat.facets.map(function (f) {
+        var p = OG.polyCentroid(f.poly);
+        var parent = state.facets.filter(function (g) { return insidePoly(p, g.poly); })[0];
+        if (!parent) throw new Error('无法定位当前纸层');
+        return { layer: parent.layer, side: det(parent.T) < 0 ? -1 : 1 };
+      });
+    });
     // 纸面正面的绕向：三维里 Y = -(y - cy)，纸面坐标里 signedArea < 0 的多边形在三维里是逆时针（正面朝 +z）
     function sArea(poly) { var a = 0; for (var i = 0; i < poly.length; i++) { var q = poly[i], w = poly[(i + 1) % poly.length]; a += q[0] * w[1] - w[0] * q[1]; } return a / 2; }
-    var nodes2d = [], tris = [], lineIdx = [], order = [], maxLayer = 1;
-    flat.facets.forEach(function (f) { if (f.layer > maxLayer) maxLayer = f.layer; });
-    var biasArr = [];
+    var nodes2d = [], tris = [], lineIdx = [], order = [];
     flat.facets.forEach(function (f, fi) {
       var idx = f.poly.map(function (_, k) { return k; });
       if (sArea(f.poly) > 0) idx.reverse();
       order.push(idx);
       var base = nodes2d.length;
-      idx.forEach(function (k) { nodes2d.push([f.poly[k][0], f.poly[k][1]]); biasArr.push(-(f.layer / maxLayer) * 2e-4); });
+      idx.forEach(function (k) { nodes2d.push([f.poly[k][0], f.poly[k][1]]); });
       for (var i = 1; i + 1 < idx.length; i++) tris.push([base, base + i, base + i + 1]);
       for (var e = 0; e < idx.length; e++) {
         var A = f.poly[idx[e]], B = f.poly[idx[(e + 1) % idx.length]];
@@ -736,17 +748,32 @@
       }
     });
     var n = nodes2d.length, positions = new Float32Array(n * 3);
+    var stack = new Float32Array(n * 3);
     // 三维坐标和求解器一致：X = x - cx, Y = -(y - cy), Z = z
     var cx = width / 2, cy = height / 2;
 
     function applyPose(fp) {
-      var pose = threeDPose(steps, { width: width, height: height, ramp: rampAt(fp) });
+      var ramps = rampAt(fp);
+      var pose = threeDPose(steps, { width: width, height: height, ramp: ramps });
+      var completed = 0;
+      for (var si = 0; si < steps.length; si++) {
+        if (ramps[si] < 1 - 1e-9) break;
+        completed = si + 1;
+      }
+      var layers = currentLayers[completed];
+      var maxRank = Math.max(1, prefixStates[completed].facets.length - 1);
       var k = 0;
       for (var fi = 0; fi < flat.facets.length; fi++) {
         var P = pose.polys[fi], idx = order[fi];
+        // Direction toward higher layers in this material facet's current frame.
+        // This rotates with the flap; observing the back reverses the depth priority.
+        var rank = layers[fi].layer / maxRank * layers[fi].side;
         for (var j = 0; j < idx.length; j++) {
           var q = P.pts[idx[j]];
           positions[k * 3] = q[0] - cx; positions[k * 3 + 1] = -(q[1] - cy); positions[k * 3 + 2] = q[2];
+          stack[k * 3] = P.front[0] * rank;
+          stack[k * 3 + 1] = -P.front[1] * rank;
+          stack[k * 3 + 2] = P.front[2] * rank;
           k++;
         }
       }
@@ -755,7 +782,7 @@
 
     var mesh = {
       width: width, height: height, nodes2d: nodes2d, tris: tris, edges: [], hinges: [], warnings: [],
-      lineIdx: lineIdx, bias: new Float32Array(biasArr),
+      lineIdx: lineIdx, stack: stack,
       ambient: 1.0          // 纯纸色（不被光照压暗），正/反面由几何朝向决定
     };
     return {

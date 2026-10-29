@@ -2255,11 +2255,13 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
   var M4 = global.OG.M4, V3 = global.OG.V3;
 
   var VS = [
-    'attribute vec3 aPos; attribute vec3 aNrm; attribute vec2 aUV; attribute vec3 aCol; attribute float aBias;',
-    'uniform mat4 uMVP; uniform mat4 uModel;',
+    'attribute vec3 aPos; attribute vec3 aNrm; attribute vec2 aUV; attribute vec3 aCol; attribute float aBias; attribute vec3 aStack;',
+    'uniform mat4 uMVP; uniform mat4 uModel; uniform vec3 uEye;',
     'varying vec3 vNrm; varying vec2 vUV; varying vec3 vCol; varying vec3 vWorld;',
     'void main(){ vec4 w = uModel*vec4(aPos,1.0); vWorld=w.xyz; vNrm=mat3(uModel)*aNrm; vUV=aUV; vCol=aCol;',
-    '  gl_Position=uMVP*vec4(aPos,1.0); gl_Position.z += aBias * gl_Position.w; }'
+    '  vec3 viewDir = normalize(uEye-w.xyz);',
+    '  float layerDepth = -2e-4 * dot(mat3(uModel)*aStack, viewDir);',
+    '  gl_Position=uMVP*vec4(aPos,1.0); gl_Position.z += (aBias+layerDepth) * gl_Position.w; }'
   ].join('\n');
   var FS = [
     'precision highp float;',
@@ -2385,6 +2387,8 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
     this.buf.bias = this.buf.bias || gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, this.buf.bias); gl.bufferData(gl.ARRAY_BUFFER, this.biasArr, gl.STATIC_DRAW);
     this.fBias = null;
+    this.stackArr = mesh.stack && mesh.stack.length === nv * 3 ? mesh.stack : new Float32Array(nv * 3);
+    this.buf.stack = this.buf.stack || gl.createBuffer();
     var idx = this.uint ? new Uint32Array(mesh.indices) : new Uint16Array(mesh.indices);
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.buf.idx); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, idx, gl.STATIC_DRAW);
     this.nIdx = idx.length;
@@ -2437,6 +2441,7 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
     }
     if (this.flatShading) this._flatten(pos);
     else {
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.buf.stack); gl.bufferData(gl.ARRAY_BUFFER, this.stackArr, gl.DYNAMIC_DRAW);
       gl.bindBuffer(gl.ARRAY_BUFFER, this.buf.pos); gl.bufferData(gl.ARRAY_BUFFER, pos, gl.DYNAMIC_DRAW);
       gl.bindBuffer(gl.ARRAY_BUFFER, this.buf.nrm); gl.bufferData(gl.ARRAY_BUFFER, nrm, gl.DYNAMIC_DRAW);
     }
@@ -2461,6 +2466,15 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
       gl.bindBuffer(gl.ARRAY_BUFFER, this.fBuf.bias); gl.bufferData(gl.ARRAY_BUFFER, this.fBias, gl.STATIC_DRAW);
       this._flatColors();
     }
+    if (!this.fStack || this.fStack.length !== n * 3) this.fStack = new Float32Array(n * 3);
+    this.fBuf.stack = this.fBuf.stack || gl.createBuffer();
+    for (var si = 0; si < n; si++) {
+      var source = I[si] * 3;
+      this.fStack[si * 3] = this.stackArr[source];
+      this.fStack[si * 3 + 1] = this.stackArr[source + 1];
+      this.fStack[si * 3 + 2] = this.stackArr[source + 2];
+    }
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.fBuf.stack); gl.bufferData(gl.ARRAY_BUFFER, this.fStack, gl.DYNAMIC_DRAW);
     var P = this.fPos, N = this.fNrm;
     for (var t = 0; t < n; t += 3) {
       var a = I[t] * 3, b = I[t + 1] * 3, c = I[t + 2] * 3;
@@ -2606,6 +2620,7 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
       gl.bindBuffer(gl.ARRAY_BUFFER, this.fBuf.uv); this._attr(pp, 'aUV', 2);
       gl.bindBuffer(gl.ARRAY_BUFFER, this.fBuf.col); this._attr(pp, 'aCol', 3);
       gl.bindBuffer(gl.ARRAY_BUFFER, this.fBuf.bias); this._attr(pp, 'aBias', 1);
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.fBuf.stack); this._attr(pp, 'aStack', 3);
       gl.drawArrays(gl.TRIANGLES, 0, this.nIdx);
     } else {
       gl.bindBuffer(gl.ARRAY_BUFFER, this.buf.pos); this._attr(pp, 'aPos', 3);
@@ -2613,6 +2628,7 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
       gl.bindBuffer(gl.ARRAY_BUFFER, this.buf.uv); this._attr(pp, 'aUV', 2);
       gl.bindBuffer(gl.ARRAY_BUFFER, this.buf.col); this._attr(pp, 'aCol', 3);
       gl.bindBuffer(gl.ARRAY_BUFFER, this.buf.bias); this._attr(pp, 'aBias', 1);
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.buf.stack); this._attr(pp, 'aStack', 3);
       gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.buf.idx);
       gl.drawElements(gl.TRIANGLES, this.nIdx, this.uint ? gl.UNSIGNED_INT : gl.UNSIGNED_SHORT, 0);
     }
@@ -5773,18 +5789,30 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
 
     // 拓扑：最终状态的纸片（每片独立顶点）
     var flat = create({ width: width, height: height });
-    steps.forEach(function (st) { var r = applyOp(flat, st.op); if (!r.error) flat = r.state; });
+    var prefixStates = [flat];
+    steps.forEach(function (st) {
+      var r = applyOp(flat, st.op);
+      if (!r.error) flat = r.state;
+      prefixStates.push(flat);
+    });
+    // Map final subdivisions to the current coarser material facets at each boundary.
+    var currentLayers = prefixStates.map(function (state) {
+      return flat.facets.map(function (f) {
+        var p = OG.polyCentroid(f.poly);
+        var parent = state.facets.filter(function (g) { return insidePoly(p, g.poly); })[0];
+        if (!parent) throw new Error('无法定位当前纸层');
+        return { layer: parent.layer, side: det(parent.T) < 0 ? -1 : 1 };
+      });
+    });
     // 纸面正面的绕向：三维里 Y = -(y - cy)，纸面坐标里 signedArea < 0 的多边形在三维里是逆时针（正面朝 +z）
     function sArea(poly) { var a = 0; for (var i = 0; i < poly.length; i++) { var q = poly[i], w = poly[(i + 1) % poly.length]; a += q[0] * w[1] - w[0] * q[1]; } return a / 2; }
-    var nodes2d = [], tris = [], lineIdx = [], order = [], maxLayer = 1;
-    flat.facets.forEach(function (f) { if (f.layer > maxLayer) maxLayer = f.layer; });
-    var biasArr = [];
+    var nodes2d = [], tris = [], lineIdx = [], order = [];
     flat.facets.forEach(function (f, fi) {
       var idx = f.poly.map(function (_, k) { return k; });
       if (sArea(f.poly) > 0) idx.reverse();
       order.push(idx);
       var base = nodes2d.length;
-      idx.forEach(function (k) { nodes2d.push([f.poly[k][0], f.poly[k][1]]); biasArr.push(-(f.layer / maxLayer) * 2e-4); });
+      idx.forEach(function (k) { nodes2d.push([f.poly[k][0], f.poly[k][1]]); });
       for (var i = 1; i + 1 < idx.length; i++) tris.push([base, base + i, base + i + 1]);
       for (var e = 0; e < idx.length; e++) {
         var A = f.poly[idx[e]], B = f.poly[idx[(e + 1) % idx.length]];
@@ -5795,17 +5823,32 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
       }
     });
     var n = nodes2d.length, positions = new Float32Array(n * 3);
+    var stack = new Float32Array(n * 3);
     // 三维坐标和求解器一致：X = x - cx, Y = -(y - cy), Z = z
     var cx = width / 2, cy = height / 2;
 
     function applyPose(fp) {
-      var pose = threeDPose(steps, { width: width, height: height, ramp: rampAt(fp) });
+      var ramps = rampAt(fp);
+      var pose = threeDPose(steps, { width: width, height: height, ramp: ramps });
+      var completed = 0;
+      for (var si = 0; si < steps.length; si++) {
+        if (ramps[si] < 1 - 1e-9) break;
+        completed = si + 1;
+      }
+      var layers = currentLayers[completed];
+      var maxRank = Math.max(1, prefixStates[completed].facets.length - 1);
       var k = 0;
       for (var fi = 0; fi < flat.facets.length; fi++) {
         var P = pose.polys[fi], idx = order[fi];
+        // Direction toward higher layers in this material facet's current frame.
+        // This rotates with the flap; observing the back reverses the depth priority.
+        var rank = layers[fi].layer / maxRank * layers[fi].side;
         for (var j = 0; j < idx.length; j++) {
           var q = P.pts[idx[j]];
           positions[k * 3] = q[0] - cx; positions[k * 3 + 1] = -(q[1] - cy); positions[k * 3 + 2] = q[2];
+          stack[k * 3] = P.front[0] * rank;
+          stack[k * 3 + 1] = -P.front[1] * rank;
+          stack[k * 3 + 2] = P.front[2] * rank;
           k++;
         }
       }
@@ -5814,7 +5857,7 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
 
     var mesh = {
       width: width, height: height, nodes2d: nodes2d, tris: tris, edges: [], hinges: [], warnings: [],
-      lineIdx: lineIdx, bias: new Float32Array(biasArr),
+      lineIdx: lineIdx, stack: stack,
       ambient: 1.0          // 纯纸色（不被光照压暗），正/反面由几何朝向决定
     };
     return {
@@ -6848,7 +6891,8 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
     if (mesh.lineIdx && mesh.lineIdx.length) lineIdx = mesh.lineIdx.slice();      // 折叠树直接生成的模型自带折痕线
     else mesh.edges.forEach(function (e) { if (e.line) lineIdx.push([e.n[0], e.n[1], e.type]); });
     var out = { positions: solver.positions, uvs: uvs, indices: idx, lineIdx: lineIdx };
-    if (mesh.bias) out.bias = mesh.bias;      // 折叠树模型：叠层深度偏置（几何不偏移）
+    if (mesh.stack) out.stack = mesh.stack;    // 动态当前层序，与相机方向一起决定遮挡
+    if (mesh.bias) out.bias = mesh.bias;      // 兼容旧的静态深度偏置
     if (mesh.ambient !== undefined) out.ambient = mesh.ambient;   // 折叠树模型：颜色不被光照改变
     if (mesh.colors) out.colors = mesh.colors;                   // 折叠树模型：逐片固定纸色
     return out;
