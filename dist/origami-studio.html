@@ -6097,18 +6097,26 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
   })();
 
   // ---------------------------------------------------------------- 滑翔机 #2（A4 长方形纸）
-  // 折线取自用户按图纸折好后导出的工程文件（doc.lines 里的 stage + foldAngle）。
-  // 前 4 步的折痕/山谷方向逐条比对一致（见 tests/test-stepfold.js）；后续收边与机翼步骤待补齐。
+  // 11 步原样取自用户按图纸折好后导出的工程文件（steps 数组，含折角 165°/120°）。
+  // 每个折叠阶段的折痕（含山谷方向）都与该工程文件的 doc.lines 逐条比对一致，见 tests/test-stepfold.js。
   (function () {
     models.push({
-      id: 'glider2', name: '滑翔机 #2（A4 长方形纸）', difficulty: 2, frontColor: '#e8553d',
-      description: '图纸第 1–4 格：中线 → 两上角折到中线 → 机头尖角折下（折线按你导出的工程文件逐条对齐）。后面的收边/机翼步骤待补齐。',
+      id: 'glider2', name: '滑翔机 #2（A4 长方形纸）', difficulty: 3, frontColor: '#e8553d',
+      displayAngles: { 8: 165, 9: 120, 11: 120 },
+      description: '图纸 9 格：中线 → 两上角折到中线 → 机头尖角折下 → 放射状收两侧 → 翻面 → 沿中线折 165° → 两侧机翼各折起 120°。',
       width: Math.SQRT1_2, height: 1,
       steps: [
-        { title: '折出中线', description: '沿中线对折压出折痕，再展开。', op: { type: 'crease', a: [0.353553, 0], b: [0.353553, 1], side: [0.25, 0.2], kind: 'valley', scope: 'all' } },
+        { title: '折出中线', description: '沿中线对折压出折痕，再展开。', op: { type: 'crease', a: [0.353553, 0], b: [0.353553, 1], side: [0.12, 0.5], kind: 'valley', scope: 'all' } },
         { title: '折左上角', description: '左上角沿 45° 斜线折到中线上。', op: { type: 'fold', a: [0.353553, 0], b: [0, 0.353553], side: [0.03, 0.03], kind: 'valley', scope: 'all' } },
-        { title: '折右上角', description: '右上角同样折到中线。', op: { type: 'fold', a: [0.353553, 0], b: [0.707107, 0.353553], side: [0.677107, 0.03], kind: 'valley', scope: 'all' } },
-        { title: '机头尖角折下', description: '把机头尖角沿 y≈0.46 的水平折痕折下来，两个上角留在原位。', op: { type: 'fold', a: [0, 0.46], b: [0.707107, 0.46], side: [0.353553, 0.06], kind: 'valley', scope: 'all' } }
+        { title: '折右上角', description: '右上角同样折到中线，顶部成尖角。', op: { type: 'fold', a: [0.353553, 0], b: [0.707107, 0.353553], side: [0.677107, 0.03], kind: 'valley', scope: 'all' } },
+        { title: '机头尖角折下', description: '把机头尖角沿 y≈0.46 的水平折痕折下来，两个上角留在原位。', op: { type: 'fold', a: [0, 0.46], b: [0.707107, 0.46], side: [0.353553, 0.06], kind: 'valley', scope: 'all' } },
+        { title: '收左下角', description: '沿过机头尖角的斜线把左下角收进来。', op: { type: 'fold', a: [0.529718, 0.282917], b: [-0.176164, 0.990024], side: [0, 0.46], kind: 'valley', scope: 'all' } },
+        { title: '收右下角', description: '右侧对称，同样收到中线上。', op: { type: 'fold', a: [0.883271, 0.990024], b: [0.177389, 0.282917], side: [0.707107, 0.46], kind: 'valley', scope: 'all' } },
+        { title: '翻面', description: '把纸整个翻过来。', op: { type: 'flip' } },
+        { title: '沿中线对折（165°）', description: '沿中线把另一半折到背后，折到 165° 留一点厚度。', op: { type: 'fold', a: [0.353553, 0.813554], b: [0.353553, 1.813554], side: [0, 0.906777], kind: 'valley', scope: 'all', angle: 165 } },
+        { title: '折起前机翼（120°）', description: '只取最上层，沿过尖角的折线把机翼折起 120°。', op: { type: 'fold', a: [0.353553, 0.459387], b: [0.735836, 1.383432], side: [0.530636, 0.636777], kind: 'valley', scope: 'topSheet', angle: 120 } },
+        { title: '翻面', description: '翻到另一面。', op: { type: 'flip' } },
+        { title: '折起后机翼（120°）', description: '另一侧机翼同样折起 120°。完成！', op: { type: 'fold', a: [0.706495, 0.46], b: [0.325013, 1.384376], side: [0.530024, 0.636777], kind: 'valley', scope: 'topSheet', angle: 120 } },
       ]
     });
   })();
@@ -7610,11 +7618,22 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
         break;
       }
       case 'project': {
+        // 工程文件只描述「一个模型」：只要分步折叠里有步骤，就用它的折痕图 + 步骤 + 纸张尺寸，
+        // 这样无论在哪个模式导出，文件内容都一样。
+        var sv = S.stepView;
+        var svSteps = sv && sv.getSteps ? sv.getSteps() : [];
         var out = { app: 'origami-studio', version: 1, doc: doc, front: S.front, back: S.back, sim: S.sim, target: S.target };
-        // 分步折叠模式下把步骤一起存下来，这样“改过哪一步”不会丢
-        if (S.mode === 'step' && S.stepView) {
-          out.steps = S.stepView.getSteps().map(function (st) { return { title: st.title, description: st.description, op: st.op }; });
-          out.width = doc.width; out.height = doc.height;
+        if (svSteps.length) {
+          var scp = sv.getCreasePattern ? sv.getCreasePattern() : null;
+          if (scp && scp.lines && scp.lines.length) {
+            var sel = $('stepModelSel');
+            scp.name = (sel && sel.selectedOptions[0] ? sel.selectedOptions[0].textContent.replace(/（.*$/, '').trim() : '分步折叠') + ' 折痕';
+            scp.description = '由分步折叠生成的折痕图';
+            out.doc = scp;
+          }
+          var sz = sv.state ? sv.state() : null;
+          if (sz) { out.width = sz.width; out.height = sz.height; }
+          out.steps = svSteps.map(function (st) { return { title: st.title, description: st.description, op: st.op }; });
         }
         download(base + '.origami.json', JSON.stringify(out, null, 1), 'application/json');
         break;

@@ -288,7 +288,7 @@ SM.list().forEach(function (meta) {
   var ref = JSON.parse(fs.readFileSync(file, 'utf8'));
   var want = {};
   ref.doc.lines.forEach(function (l) {
-    if (l.type === 'B' || l.stage > 4) return;
+    if (l.type === 'B') return;
     (want[l.stage] = want[l.stage] || []).push(l);
   });
   function canon(l) {
@@ -300,12 +300,15 @@ SM.list().forEach(function (meta) {
     return { ang: Math.abs(ang), off: off, type: l.type };
   }
   var m = SM.get('glider2'), st = SF.create({ width: m.width, height: m.height });
-  var bad = [];
-  m.steps.slice(0, 4).forEach(function (step, i) {
-    var stage = i + 1;
+  var bad = [], foldNo = 0;
+  m.steps.forEach(function (step) {
+    var isFold = step.op && (step.op.type === 'fold' || step.op.type === 'crease');
+    if (isFold) foldNo++;
+    var stage = foldNo;
     var r = SF.applyOp(st, step.op);
-    if (r.error) { bad.push('第' + stage + '步应用失败'); return; }
+    if (r.error) { bad.push(step.title + '应用失败'); return; }
     st = r.state;
+    if (!isFold) return;
     var got = SF.creasePattern(st, 'x').lines.filter(function (l) { return l.type !== 'B' && l.stage === stage; }).map(canon);
     var exp = (want[stage] || []).map(canon), used = [], hit = 0;
     got.forEach(function (g) {
@@ -316,7 +319,7 @@ SM.list().forEach(function (meta) {
     });
     if (hit !== exp.length) bad.push('第' + stage + '步折痕 ' + hit + '/' + exp.length);
   });
-  ok(bad.length === 0, '滑翔机#2 前 4 步与用户折痕图逐阶段一致' + (bad.length ? '（' + bad.join('，') + '）' : ''));
+  ok(bad.length === 0, '滑翔机#2 全部 9 个折叠阶段与用户折痕图逐条一致' + (bad.length ? '（' + bad.join('，') + '）' : ''));
 })();
 console.log(passes + ' passed, ' + fails + ' failed');
 process.exit(fails ? 1 : 0);

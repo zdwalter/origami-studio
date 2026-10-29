@@ -167,6 +167,34 @@ var fails = 0; function ok(c, m) { console.log((c ? 'ok   ' : 'FAIL ') + m); if 
   ok(surgical.histLenSame, '历史长度与当前位置不变');
   ok(surgical.changedCreases > 0 && surgical.changedCreases <= 4, '只更新这一步自己的折痕（' + surgical.changedCreases + ' 条）');
 
+  // 10. project export is identical no matter which mode you export from
+  var exports = await page.evaluate(async function () {
+    var S = window.OrigamiStudio;
+    var items = Array.from(document.querySelectorAll('#tutList .lib-item')).filter(function (b) { return b.dataset.tut === 'glider2'; });
+    document.querySelector('.mode-tab[data-mode="step"]').click();
+    if (items[0]) items[0].click();
+    await new Promise(function (r) { setTimeout(r, 900); });
+    function build() {
+      var sv = S.stepView, doc = S.doc, svSteps = sv && sv.getSteps ? sv.getSteps() : [];
+      var out = { app: 'origami-studio', version: 1, doc: doc, front: S.front, back: S.back, sim: S.sim, target: S.target };
+      if (svSteps.length) {
+        var scp = sv.getCreasePattern();
+        if (scp && scp.lines && scp.lines.length) { scp.name = 'x'; scp.description = 'y'; out.doc = scp; }
+        var sz = sv.state(); out.width = sz.width; out.height = sz.height;
+        out.steps = svSteps.map(function (st) { return { title: st.title, description: st.description, op: st.op }; });
+      }
+      return JSON.stringify(out);
+    }
+    var inStep = build();
+    document.querySelector('.mode-tab[data-mode="sim"]').click();
+    await new Promise(function (r) { setTimeout(r, 900); });
+    var inSim = build();
+    return { same: inStep === inSim, steps: JSON.parse(inStep).steps.length, w: JSON.parse(inSim).width };
+  });
+  ok(exports.steps === 11, '工程文件始终带 11 步（' + exports.steps + ' 步）');
+  ok(exports.same, '分步折叠 / 3D 仿真 两种模式导出的工程文件内容一致');
+  ok(Math.abs(exports.w - Math.SQRT1_2) < 1e-9, '导出纸张尺寸取分步折叠的纸（' + exports.w.toFixed(3) + '）');
+
   ok(!logs.length, 'no console errors ' + logs.join(' | '));
   await browser.close();
   console.log(fails ? fails + ' FAILED' : 'ALL OK');

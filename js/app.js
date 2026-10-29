@@ -751,11 +751,22 @@
         break;
       }
       case 'project': {
+        // 工程文件只描述「一个模型」：只要分步折叠里有步骤，就用它的折痕图 + 步骤 + 纸张尺寸，
+        // 这样无论在哪个模式导出，文件内容都一样。
+        var sv = S.stepView;
+        var svSteps = sv && sv.getSteps ? sv.getSteps() : [];
         var out = { app: 'origami-studio', version: 1, doc: doc, front: S.front, back: S.back, sim: S.sim, target: S.target };
-        // 分步折叠模式下把步骤一起存下来，这样“改过哪一步”不会丢
-        if (S.mode === 'step' && S.stepView) {
-          out.steps = S.stepView.getSteps().map(function (st) { return { title: st.title, description: st.description, op: st.op }; });
-          out.width = doc.width; out.height = doc.height;
+        if (svSteps.length) {
+          var scp = sv.getCreasePattern ? sv.getCreasePattern() : null;
+          if (scp && scp.lines && scp.lines.length) {
+            var sel = $('stepModelSel');
+            scp.name = (sel && sel.selectedOptions[0] ? sel.selectedOptions[0].textContent.replace(/（.*$/, '').trim() : '分步折叠') + ' 折痕';
+            scp.description = '由分步折叠生成的折痕图';
+            out.doc = scp;
+          }
+          var sz = sv.state ? sv.state() : null;
+          if (sz) { out.width = sz.width; out.height = sz.height; }
+          out.steps = svSteps.map(function (st) { return { title: st.title, description: st.description, op: st.op }; });
         }
         download(base + '.origami.json', JSON.stringify(out, null, 1), 'application/json');
         break;
