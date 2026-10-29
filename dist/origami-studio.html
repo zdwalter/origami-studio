@@ -428,6 +428,7 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
             <button class="tbtn active" data-stool="line" title="画折线：拖出一条折线，然后点击要翻折的一侧"><svg viewBox="0 0 24 24"><path d="M4 20 20 4" stroke-dasharray="3 2"/></svg><span>折线</span></button>
             <button class="tbtn" data-stool="p2p" title="点对点：把一个点折到另一个点上"><svg viewBox="0 0 24 24"><circle cx="5" cy="19" r="2"/><circle cx="19" cy="5" r="2"/><path d="M7 17 17 7" stroke-dasharray="2 2"/></svg><span>点到点</span></button>
             <button class="tbtn" data-stool="e2e" title="边对边：把一条边折到另一条边上（角平分）"><svg viewBox="0 0 24 24"><path d="M4 20h16 M4 20 16 4 M4 20l16-8" /></svg><span>边到边</span></button>
+            <button class="tbtn" data-stool="linefold" title="沿折线折：点一下已有的折痕或纸边，就沿这条轴对称线折（不用重新画线）"><svg viewBox="0 0 24 24"><path d="M4 20 20 4" stroke-dasharray="3 2"/><path d="M9 15a4 4 0 0 1 6 0" /><circle cx="12" cy="17.5" r="1.4"/></svg><span>沿折线折</span></button>
             <button class="tbtn" data-stool="pan" title="平移视图"><svg viewBox="0 0 24 24"><path d="M12 3v18 M3 12h18"/></svg><span>平移</span></button>
           </div>
           <div class="tsep"></div>
@@ -7052,13 +7053,18 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
       var ang = Math.atan2(ui.b[1] - ui.a[1], ui.b[0] - ui.a[0]) * 180 / Math.PI;
       this._label(ctx, q, (Math.round(-ang * 10) / 10) + '°');
     }
-    if (ui.mode === 'side' || ui.mode === 'p2p2' || ui.mode === 'e2e2') {
+    if (ui.mode === 'side' || ui.mode === 'p2p2' || ui.mode === 'e2e2' || ui.mode === 'linefold') {
       if (ui.line) this._drawFoldLine(ctx, ui.line.a, ui.line.b, this.kind);
       if (ui.preview) this._drawPreview(ctx, ui.preview.res, ui.preview.op);
     }
     if (ui.mode === 'p2p2' && ui.p) { var s = this.toScreen(ui.p); ctx.save(); ctx.fillStyle = '#e8553d'; ctx.beginPath(); ctx.arc(s[0], s[1], 5, 0, 7); ctx.fill(); ctx.restore(); }
     if (ui.edge) this._hlEdge(ctx, ui.edge, '#e8553d');
     if (ui.hoverEdge) this._hlEdge(ctx, ui.hoverEdge, 'rgba(232,85,61,0.55)');
+    if (ui.hoverCrease) {
+      var hc0 = this.toScreen(ui.hoverCrease.a), hc1 = this.toScreen(ui.hoverCrease.b);
+      ctx.save(); ctx.strokeStyle = 'rgba(232,85,61,0.85)'; ctx.lineWidth = 4; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(hc0[0], hc0[1]); ctx.lineTo(hc1[0], hc1[1]); ctx.stroke(); ctx.restore();
+    }
     if (ui.snap) {
       var sp = this.toScreen(ui.snap.p);
       ctx.save(); ctx.strokeStyle = ui.snap.kind === 'edge' ? '#2f6fed' : '#e8553d'; ctx.lineWidth = 2;
@@ -7086,8 +7092,51 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
       line: '折线：在纸上拖出一条折线（Shift 约束 22.5°），然后点击要翻折的一侧；Esc 取消',
       p2p: '点到点：先点击要移动的点，再点击目标点',
       e2e: '边到边：先点击要移动的边，再点击目标边',
+      linefold: '沿折线折：点一下纸上的折痕或纸边（鼠标靠近会高亮），就沿这条线折；折哪边由你点的位置决定',
       pan: '平移：拖动画布；滚轮缩放，双击复位视图'
     }[this.tool] || '';
+  };
+  /** 沿这条线折时“哪一边翻过去”：优先用鼠标位置，正好在线上就按纸的多少取小的一侧 */
+  P._foldSideForLine = function (line, w) {
+    var eps = 6 / this.view.s;
+    var cands = [w, this._lastW];
+    for (var i = 0; i < cands.length; i++) {
+      var c = cands[i];
+      if (c && Math.abs(OG.orient(line.a, line.b, c)) > 1e-7) {
+        // 只取点所在的纸片中心方向，避免侧点落在别层
+        var f = SF.facetAt(this.state(), c);
+        if (f) return c;
+      }
+    }
+    var dx = line.b[0] - line.a[0], dy = line.b[1] - line.a[1], L = Math.hypot(dx, dy) || 1;
+    var nx = -dy / L, ny = dx / L, mx = (line.a[0] + line.b[0]) / 2, my = (line.a[1] + line.b[1]) / 2;
+    var best = null;
+    [[1], [-1]].forEach(function (sgn) {
+      var pt = [mx + nx * eps * 2 * sgn[0], my + ny * eps * 2 * sgn[0]];
+      var f2 = SF.facetAt(this.state(), pt);
+      if (!f2) return;
+      var area = Math.abs(OG.polyArea(f2.poly));
+      if (!best || area < best.area) best = { pt: pt, area: area };
+    }, this);
+    return best ? best.pt : w;
+  };
+
+  /** 找离点击点最近的折痕线段（含纸边）：返回平面坐标里的线段 */
+  P._nearestCrease = function (w) {
+    var st = this.state(), tol = 10 / this.view.s, best = null, bd = tol;
+    st.creases.forEach(function (c) {
+      var d = OG.pointSegDist(w, c.a, c.b);
+      if (d < bd) { bd = d; best = { a: c.a.slice(), b: c.b.slice(), type: c.type, dist: d }; }
+    });
+    // 纸边也算：每片纸的边
+    st.facets.forEach(function (f) {
+      var P = f.poly.map(function (q) { return SF.affine.apply(f.T, q); });
+      for (var i = 0; i < P.length; i++) {
+        var A = P[i], B = P[(i + 1) % P.length], d = OG.pointSegDist(w, A, B);
+        if (d < bd) { bd = d; best = { a: A.slice(), b: B.slice(), type: 'B', dist: d }; }
+      }
+    });
+    return best;
   };
   P._snap = function (w, free) {
     var tol = 12 / this.view.s, best = null, bd = tol;
@@ -7119,6 +7168,13 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
     ui.lastW = w;
     if (ui.mode === 'side') { line = ui.line; side = w; }
     else if (ui.mode === 'p2p2') { var q = this._snap(w).p; ui.snap = this._snap(w); if (OG.dist(q, ui.p) < 1e-5) { ui.preview = null; ui.line = null; return; } line = SF.pointToPoint(ui.p, q); ui.line = line; side = ui.p; }
+    else if (ui.mode === 'linefold') {
+      var seg = this._nearestCrease(w);
+      ui.hoverCrease = seg;
+      if (!seg) { ui.preview = null; ui.line = null; return; }
+      line = { a: seg.a, b: seg.b };
+      side = this._foldSideForLine(line, w);
+    }
     else if (ui.mode === 'e2e2') {
       var e = this._nearestEdge(w); ui.hoverEdge = e;
       if (!e || e === ui.edge) { ui.preview = null; ui.line = null; return; }
@@ -7163,11 +7219,13 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
         if (e.button === 1 || e.button === 2 || self.tool === 'pan' || self._space) { drag = { mode: 'pan', sx: sp[0], sy: sp[1], ox: self.view.ox, oy: self.view.oy }; c.style.cursor = 'grabbing'; return; }
         drag = { mode: 'tool', sx: sp[0], sy: sp[1], w: w, moved: false };
         if (self.tool === 'peel') { self.unfoldLayerAt(w); self.dirty = true; return; }
+        if (self.tool === 'linefold') { self.ui = { mode: 'linefold' }; self._updatePreview(w); self.dirty = true; return; }
         if (self.tool === 'line' && self.ui.mode !== 'side') { var s0 = self._snap(w); self.ui = { mode: 'drawing', a: s0.p, b: s0.p, snap: s0 }; }
         self.dirty = true;
       },
       move: function (e) {
         var sp = pos(e), w = self.toWorld(sp[0], sp[1]);
+        self._lastW = w;
         if (drag && drag.mode === 'orbit') {
           self.rot3d.yaw = drag.yaw + (sp[0] - drag.sx) * 0.01;
           self.rot3d.pitch = Math.max(-1.45, Math.min(1.45, drag.pitch + (sp[1] - drag.sy) * 0.008));
@@ -7191,6 +7249,11 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
           if (ui.mode === 'side') { self._updatePreview(w); self.dirty = true; return; }
           ui.snap = self._snap(w); self.dirty = true; return;
         }
+        if (self.tool === 'linefold') {
+          if (ui.mode === 'linefold') self._updatePreview(w);
+          else { ui.hoverCrease = self._nearestCrease(w); self.dirty = true; }
+          return;
+        }
         if (self.tool === 'p2p') {
           if (ui.mode === 'p2p2') self._updatePreview(w); else ui.snap = self._snap(w);
           self.dirty = true; return;
@@ -7206,6 +7269,12 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
         if (d && d.mode === 'pan') { c.style.cursor = self.tool === 'pan' ? 'grab' : 'crosshair'; return; }
         if (!d || self.anim) return;
         var ui = self.ui;
+        if (self.tool === 'linefold') {
+          if (ui.preview && !ui.preview.res.error) self._commit();
+          self.ui = { mode: 'idle' };
+          self.dirty = true;
+          return;
+        }
         if (self.tool === 'line') {
           if (ui.mode === 'drawing') {
             if (OG.dist(ui.a, ui.b) * self.view.s > 8) {

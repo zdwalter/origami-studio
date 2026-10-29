@@ -254,6 +254,32 @@ var fails = 0; function ok(c, m) { console.log((c ? 'ok   ' : 'FAIL ') + m); if 
   ok(peel.creases >= peel.creases0, '打开某层后折痕保留（' + peel.creases0 + ' → ' + peel.creases + '）');
   ok(peel.after < peel.before, '打开这一层所在的折后纸片回到折之前（' + peel.before + ' → ' + peel.after + ' 片）');
 
+  // 14. 「沿折线折」：点一下已有折痕，就沿这条线折
+  var lf = await page.evaluate(function () {
+    var v = window.OrigamiStudio.stepView, SF = window.StepFold;
+    v.reset(1, 1); v.setTool('line');
+    v.setCreaseOnly(true);
+    v.ui = { mode: 'side', line: { a: [0.5, 0], b: [0.5, 1] } };
+    v._updatePreview([0.2, 0.5]); v._commit();
+    v.setCreaseOnly(false);
+    var creases = v.state().creases.length, facets0 = v.state().facets.length;
+    document.querySelector('[data-stool="linefold"]').click();
+    var tool = v.tool;
+    var near = v._nearestCrease([0.5, 0.55]);
+    v.ui = { mode: 'linefold' };
+    v.unfoldLayerAt && null;
+    v._updatePreview([0.5, 0.55]);
+    var hasPreview = !!(v.ui.preview && !v.ui.preview.res.error);
+    v._commit();
+    var st = v.state(), titles = v.getSteps().map(function (s) { return s.title; });
+    document.querySelector('[data-stool="line"]').click();
+    return { tool: tool, near: !!near, creases: creases, facets0: facets0, hasPreview: hasPreview,
+             facets: st.facets.length, steps: titles.length };
+  });
+  ok(lf.tool === 'linefold' && lf.near, '「沿折线折」能吸附到最近的折痕');
+  ok(lf.hasPreview && lf.facets > lf.facets0, '点一下折痕就沿这条线折（' + lf.facets0 + ' → ' + lf.facets + ' 片）');
+  ok(lf.steps === 2, '沿折线折记成一步（共 ' + lf.steps + ' 步）');
+
   ok(!logs.length, 'no console errors ' + logs.join(' | '));
   await browser.close();
   console.log(fails ? fails + ' FAILED' : 'ALL OK');
