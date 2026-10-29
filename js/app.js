@@ -554,19 +554,20 @@
   }
   function stepTo3D() {
     var v = S.stepView; if (!v) return;
-    var steps = v.getSteps();
+    if (v.anim) v._finishAnim();
+    // 只取到“当前这一步”为止：3D 显示的就是你在分步视图里正看着的那个状态
+    var steps = v.getSteps().slice(0, v.getInfo().stepIndex);
     if (!steps.length || !steps.some(function (st) { return st.op && st.op.type === 'fold'; })) { toast('还没有折痕，先折几下吧', true); return; }
     var doc = v.getCreasePattern();
     var name = ($('stepModelSel').selectedOptions[0] && $('stepModelSel').value ? $('stepModelSel').selectedOptions[0].textContent.replace(/（.*$/, '') : '分步折叠') + ' 折痕';
     doc.name = doc.name || name;
     // 直接从折叠树生成 3D（不走折痕图重建：多层折痕图对求解器是矛盾的，会算歪）
     var pm;
-    var colFront = (v.front || S.front || [232, 85, 61]).map(function (c) { return c / 255; });
-    var colBack = (v.back || S.back || [246, 241, 231]).map(function (c) { return c / 255; });
-    try { pm = StepFold.buildPoseModel(steps, { width: doc.width, height: doc.height, colors: { front: colFront, back: colBack } }); }
+    try { pm = StepFold.buildPoseModel(steps, { width: doc.width, height: doc.height }); }
     catch (e) { console.error(e); }
     switchMode('sim');
     if (!pm) { loadDoc(doc, { foldPercent: 0.9 }); return; }
+    if ($('stFront') && $('stBack')) setColors($('stFront').value, $('stBack').value);
     S.doc = cleanDoc(doc);
     S.presetId = null;
     S.mesh = pm.mesh;
@@ -575,7 +576,7 @@
     S.fp = 0; S.settled = 0; S.fitPending = true; S.sleepT = 0;
     if (S.renderer) {
       S.renderer.setMesh(rendererMesh(pm.mesh, pm));
-      S.renderer.fixedColors = true;          // 每片纸颜色按平面视图里的正/反面固定，折叠过程中不变
+      S.renderer.fixedColors = false;         // 正/反面按纸片真实朝向着色，和平面视图同一套规则
       S.renderer.fit(false);
     }
     updateInfo(); updateCPPanel(); renderParams();

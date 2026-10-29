@@ -5571,6 +5571,7 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
   function threeDPose(steps, opts) {
     opts = opts || {};
     var angles = opts.angles || {};                 // { 步序号(0基): 角度 } 默认 180
+    var ramp = opts.ramp || null;                   // { 步序号: 0..1 } 动画进度（折叠/翻面/旋转都按比例做）
     var flipDeg = opts.flipAngle === undefined ? 180 : opts.flipAngle;
     var st = create({ width: opts.width || 1, height: opts.height || 1 });
     var M = {};                                     // facet id → M3
@@ -5592,6 +5593,7 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
         // 折角优先级：调用参数 → 这一步自己记录的 fold 角度 → 180°（完全折平）
         var ang = angles[i] !== undefined ? angles[i]
           : (op.angle !== undefined ? op.angle : (op.foldAngle !== undefined ? op.foldAngle : 180));
+        if (ramp) ang *= (ramp[i] === undefined ? 1 : ramp[i]);
         // 折线是“当前折叠平面”里的坐标：先换算回纸面坐标，再用该纸片的 M3 映射到三维
         var mv = (r.moved || [])[0];
         var parentFacet = null;
@@ -5607,51 +5609,41 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
           var p1 = m3apply(M[parentFacet.id], [pa[0], pa[1], 0]), p2 = m3apply(M[parentFacet.id], [pb[0], pb[1], 0]);
           var dir = OG3.sub(p2, p1);
           if (Math.sqrt(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]) > 1e-9) {
-            // 旋转方向：谷折要把翻片折到“基准面正面”那一侧的上方，山折折到下方。
-            // 判据：分别试 ±角度，看翻片质心落在基准平面的哪一侧。
+            // 旋转方向：和二维视图的定义一致——谷折 = 翻片朝观察者翻起（落在最上层），山折相反。
+            // 三维里观察者恒在 +z 一侧（翻面时是整个模型绕 y 轴转）。基准面的“朝观察者”法向
+            // = 它在二维里露出正面时取正面法向，露出反面时取反向。用 30° 试探角判断 ± 号
+            // （180° 时正反两个方向结果相同，没法判断）。
             var sign = 1;
             try {
-              var Mf = M[mv] || m3ident();
-              var aft2 = null;
-              for (var ai3 = 0; ai3 < after.facets.length; ai3++) if (after.facets[ai3].id === mv) { aft2 = after.facets[ai3]; break; }
-              var polyQ2 = aft2 ? aft2.poly : null;
-              if (polyQ2) {
-                var cpq = [0, 0];
-                polyQ2.forEach(function (q) { cpq[0] += q[0] / polyQ2.length; cpq[1] += q[1] / polyQ2.length; });
-                // 基准面：离翻片最近的静止纸片
-                var best = null, bestD = Infinity, bc2 = null;
-                for (var bi2 = 0; bi2 < before.facets.length; bi2++) {
-                  var bf2 = before.facets[bi2];
-                  if ((r.moved || []).indexOf(bf2.id) >= 0) continue;
-                  var Mc = M[bf2.id]; if (!Mc) continue;
-                  var cc = [0, 0, 0];
-                  bf2.poly.forEach(function (q) { var pt = m3apply(Mc, [q[0], q[1], 0]); for (var i2 = 0; i2 < 3; i2++) cc[i2] += pt[i2] / bf2.poly.length; });
-                  var c3c = m3apply(Mf, [cpq[0], cpq[1], 0]);
-                  var dd = Math.sqrt(Math.pow(cc[0] - c3c[0], 2) + Math.pow(cc[1] - c3c[1], 2) + Math.pow(cc[2] - c3c[2], 2));
-                  if (dd < bestD) { bestD = dd; best = Mc; bc2 = cc; }
+              var mvAfter = null;
+              for (var ai3 = 0; ai3 < after.facets.length; ai3++) if (after.facets[ai3].id === mv) { mvAfter = after.facets[ai3]; break; }
+              var movedIds = r.moved || [];
+              var baseF = null;
+              if (mvAfter && mvAfter.parent !== undefined) {           // 被折线切开时，静止的那半保留父片 id
+                for (var bi3 = 0; bi3 < after.facets.length; bi3++) {
+                  var cand = after.facets[bi3];
+                  if (cand.id === mvAfter.parent && movedIds.indexOf(cand.id) < 0) { baseF = cand; break; }
                 }
-                if (best) {
-                  var nBase = OG3.norm([best.R[2], best.R[5], best.R[8]]);
-                  var c0 = m3apply(Mf, [cpq[0], cpq[1], 0]);
-                  var dU = OG3.norm(dir);
-                  // 质心绕轴旋转 ±ang 后的位置
-                  function rotC(sgn2) {
-                    var ca2 = Math.cos(sgn2 * ang * Math.PI / 180), sa2 = Math.sin(sgn2 * ang * Math.PI / 180), vv2 = 1 - ca2;
-                    var w0 = OG3.sub(c0, p1);
-                    var pr2 = w0[0] * dU[0] + w0[1] * dU[1] + w0[2] * dU[2];
-                    var rv = [w0[0] - dU[0] * pr2, w0[1] - dU[1] * pr2, w0[2] - dU[2] * pr2];
-                    // 平行分量保持不变，垂直分量绕轴旋转
-                    var para = [dU[0] * pr2, dU[1] * pr2, dU[2] * pr2];
-                    var kk = OG3.cross(dU, rv);
-                    var rv2 = [rv[0] * ca2 + kk[0] * sa2, rv[1] * ca2 + kk[1] * sa2, rv[2] * ca2 + kk[2] * sa2];
-                    return [p1[0] + para[0] + rv2[0], p1[1] + para[1] + rv2[1], p1[2] + para[2] + rv2[2]];
-                  }
-                  function sideOf(pt) { return (pt[0] - p1[0]) * nBase[0] + (pt[1] - p1[1]) * nBase[1] + (pt[2] - p1[2]) * nBase[2]; }
-                  var sPlus = sideOf(rotC(1)), sMinus = sideOf(rotC(-1));
-                  var want = (op.kind === 'mountain') ? -1 : 1;      // 谷折：质心在基准面正面上方
-                  sign = (Math.abs(sPlus - want) <= Math.abs(sMinus - want)) ? 1 : -1;
-                  if (want > 0 ? sPlus < sMinus : sPlus > sMinus) sign = -1; else sign = 1;
-                }
+              }
+              if (!baseF && mvAfter) {                                   // 沿已有折痕整片翻：取平面里最近的静止纸片
+                var cm = OG.polyCentroid(folded(mvAfter)), bestD = Infinity;
+                after.facets.forEach(function (cand2) {
+                  if (movedIds.indexOf(cand2.id) >= 0) return;
+                  var d0 = OG.dist(OG.polyCentroid(folded(cand2)), cm);
+                  if (d0 < bestD) { bestD = d0; baseF = cand2; }
+                });
+              }
+              if (baseF && mvAfter && M[baseF.id]) {
+                var Mb = M[baseF.id];
+                var nB = OG3.norm([Mb.R[2], Mb.R[5], Mb.R[8]]);
+                var nView = det(baseF.T) > 0 ? nB : [-nB[0], -nB[1], -nB[2]];
+                var cpq = OG.polyCentroid(mvAfter.poly);
+                var c0 = m3apply(M[mv] || m3ident(), [cpq[0], cpq[1], 0]);
+                var probe = Math.min(30, Math.abs(ang) || 30);
+                var cP = m3apply(m3rotAxis(p1, dir, probe), c0), cN = m3apply(m3rotAxis(p1, dir, -probe), c0);
+                var sideP = OG3.dot(OG3.sub(cP, p1), nView), sideN = OG3.dot(OG3.sub(cN, p1), nView);
+                var want = op.kind === 'mountain' ? -1 : 1;
+                sign = want * (sideP - sideN) >= 0 ? 1 : -1;
               }
             } catch (e) { sign = op.kind === 'mountain' ? -1 : 1; }
             var Rm = m3rotAxis(p1, dir, sign * ang);
@@ -5667,11 +5659,11 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
       } else if (op.type === 'flip') {
         var b = bounds(before), c = b.center;
         // 二维的 flip 是“沿竖直中轴翻面”，三维里等于绕竖直轴(y)转 180°
-        var Rf = m3rotAxis([c[0], c[1], 0], [0, 1, 0], flipDeg);
+        var Rf = m3rotAxis([c[0], c[1], 0], [0, 1, 0], flipDeg * (ramp && ramp[i] !== undefined ? ramp[i] : 1));
         after.facets.forEach(function (f) { M[f.id] = m3mul(Rf, M[f.id] || m3ident()); });
       } else if (op.type === 'rotate') {
         var b2 = bounds(before), c2 = b2.center;
-        var Rr = m3rotAxis([c2[0], c2[1], 0], [0, 0, 1], (op.deg || 0));
+        var Rr = m3rotAxis([c2[0], c2[1], 0], [0, 0, 1], (op.deg || 0) * (ramp && ramp[i] !== undefined ? ramp[i] : 1));
         after.facets.forEach(function (f) { M[f.id] = m3mul(Rr, M[f.id] || m3ident()); });
       } else if (op.type === 'unfold') {
         var u = undoStack.pop();
@@ -5749,206 +5741,113 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
 
 
   /**
-   * 直接从分步折叠的折叠树生成 3D 模型（网格 + 假求解器接口），
-   * 绕开"折痕图 → 求解器"那条路：多层折痕图对求解器是矛盾的，会算歪。
-   * 返回的对象可以直接塞给 renderer 和 app：positions / step / setFoldPercent / bounds ...
+   * 直接从分步折叠的折叠树生成 3D 模型（网格 + 求解器接口），不走“折痕图 → 求解器”。
+   *  · 每片纸单独一套顶点（多层叠在一起时同一个纸面点在各层是不同的三维点，不能共用）；
+   *  · 三角形绕向统一按“纸面正面”定义 → 渲染器用 gl_FrontFacing 就能得到真实的正/反面色，
+   *    和平面视图完全同一套规则（翻过来的纸露出背面色）；
+   *  · 折叠程度 0→1 按时间线依次做每一步：折叠（含折角）、翻面、旋转都按比例动画，
+   *    所以 3D 在每个时刻和平面视图同一步的样子一致；
+   *  · 叠在一起的层几何完全贴合，只给渲染器一个按层号的深度偏置，避免共面闪烁。
    */
   function buildPoseModel(steps, opts) {
     opts = opts || {};
     var width = opts.width || 1, height = opts.height || 1;
-    // 1) 先跑一遍，记下每一步是第几次折（用于分阶段 ramp）
-    var stages = [], foldCount = 0, stepAngles = [];
-    steps.forEach(function (st) {
-      var op = st.op || st;
-      if (op.type === 'fold') {
-        foldCount++;
-        stages.push(foldCount);
-        stepAngles.push(op.angle !== undefined && op.angle !== null ? op.angle : 180);
-      } else { stages.push(0); stepAngles.push(180); }
+    steps = (steps || []).map(function (st) { return { op: st.op || st }; });
+    // 时间线：只有改变几何的步骤（折叠 / 翻面 / 旋转）占时间段
+    var timed = [];
+    steps.forEach(function (st, i) {
+      var t = st.op.type;
+      if (t === 'fold' || t === 'flip' || (t === 'rotate' && st.op.deg)) timed.push(i);
     });
-    var nStage = foldCount;
-
-    // 2) 建拓扑：每个纸片单独一套顶点（多层叠在一起时不能共用顶点）
-    //    为了正/反面着色正确，所有纸片的多边形绕向都要和整张纸一致（否则会出现一块块反色）
-    var nodes2d = [], tris = [], owner = [], lineIdxData = [], reversed = [];
-    function signedArea(poly) {
-      var a = 0;
-      for (var i = 0; i < poly.length; i++) { var q = poly[i], r = poly[(i + 1) % poly.length]; a += q[0] * r[1] - r[0] * q[1]; }
-      return a / 2;
-    }
-    // 三维里 Y 轴取反（Y = -(y-cy)），所以绕向要反过来：这样平放时正面朝向观察者
-    var SHEET_SIGN = -(Math.sign(signedArea([[0, 0], [width, 0], [width, height], [0, height]])) || 1);
-    function buildTopology() {
-      nodes2d = []; tris = []; owner = []; lineIdxData = [];
-      var flat = create({ width: width, height: height });
-      steps.forEach(function (st) { var r = applyOp(flat, st.op); if (!r.error) flat = r.state; });
-      flat.facets.forEach(function (f, fi) {
-        var base = nodes2d.length;
-        var rev = Math.sign(signedArea(f.poly)) !== SHEET_SIGN;
-        reversed[fi] = rev;
-        var poly = rev ? f.poly.slice().reverse() : f.poly;
-        poly.forEach(function (q) { nodes2d.push([q[0], q[1]]); owner.push(fi); });
-        for (var i = 1; i + 1 < poly.length; i++) tris.push([base, base + i, base + i + 1]);
-        // 折痕线（纸片边落在折痕上的）
-        for (var e = 0; e < poly.length; e++) {
-          var A = poly[e], B = poly[(e + 1) % poly.length];
-          var mid = [(A[0] + B[0]) / 2, (A[1] + B[1]) / 2];
-          for (var ci = 0; ci < flat.creases.length; ci++) {
-            var c = flat.creases[ci], L = OG.dist(c.a, c.b);
-            if (L < 1e-9) continue;
-            if (Math.abs(OG.orient(c.a, c.b, mid)) / L < 1e-7 && OG.pointSegDist(A, c.a, c.b) < 1e-7 && OG.pointSegDist(B, c.a, c.b) < 1e-7) {
-              lineIdxData.push([base + e, base + (e + 1) % poly.length, c.type]);
-              break;
-            }
-          }
-        }
+    var nT = Math.max(1, timed.length);
+    var slot = {}; timed.forEach(function (i, k) { slot[i] = k; });
+    function rampAt(fp) {
+      var r = {}, x = Math.max(0, Math.min(1, Math.abs(fp))) * nT;
+      steps.forEach(function (_, i) {
+        if (slot[i] === undefined) { r[i] = 1; return; }
+        var v = x - slot[i];
+        r[i] = v <= 0 ? 0 : v >= 1 ? 1 : v;
       });
-      return flat;
+      return r;
     }
-    var flatState = buildTopology();
-    var n = nodes2d.length, positions = new Float32Array(n * 3);
 
-    // 3) 给定折叠程度，算每个顶点的三维位置
-    function poseAt(fp) {
-      var ramp = function (stage) {
-        if (!stage) return 0;
-        var v0 = Math.abs(fp) * nStage - (stage - 1);
-        return v0 <= 0 ? 0 : v0 >= 1 ? 1 : v0;
-      };
-      var angles = {};
-      for (var i = 0; i < steps.length; i++) angles[i] = stepAngles[i] * ramp(stages[i]);
-      return threeDPose(steps, { width: width, height: height, angles: angles });
-    }
-    var lastPose = null;
+    // 拓扑：最终状态的纸片（每片独立顶点）
+    var flat = create({ width: width, height: height });
+    steps.forEach(function (st) { var r = applyOp(flat, st.op); if (!r.error) flat = r.state; });
+    // 纸面正面的绕向：三维里 Y = -(y - cy)，纸面坐标里 signedArea < 0 的多边形在三维里是逆时针（正面朝 +z）
+    function sArea(poly) { var a = 0; for (var i = 0; i < poly.length; i++) { var q = poly[i], w = poly[(i + 1) % poly.length]; a += q[0] * w[1] - w[0] * q[1]; } return a / 2; }
+    var nodes2d = [], tris = [], lineIdx = [], order = [], maxLayer = 1;
+    flat.facets.forEach(function (f) { if (f.layer > maxLayer) maxLayer = f.layer; });
+    var biasArr = [];
+    flat.facets.forEach(function (f, fi) {
+      var idx = f.poly.map(function (_, k) { return k; });
+      if (sArea(f.poly) > 0) idx.reverse();
+      order.push(idx);
+      var base = nodes2d.length;
+      idx.forEach(function (k) { nodes2d.push([f.poly[k][0], f.poly[k][1]]); biasArr.push(-(f.layer / maxLayer) * 2e-4); });
+      for (var i = 1; i + 1 < idx.length; i++) tris.push([base, base + i, base + i + 1]);
+      for (var e = 0; e < idx.length; e++) {
+        var A = f.poly[idx[e]], B = f.poly[idx[(e + 1) % idx.length]];
+        for (var ci = 0; ci < flat.creases.length; ci++) {
+          var c = flat.creases[ci];
+          if (OG.pointSegDist(A, c.a, c.b) < 1e-7 && OG.pointSegDist(B, c.a, c.b) < 1e-7) { lineIdx.push([base + e, base + (e + 1) % idx.length, c.type]); break; }
+        }
+      }
+    });
+    var n = nodes2d.length, positions = new Float32Array(n * 3);
+    // 三维坐标和求解器一致：X = x - cx, Y = -(y - cy), Z = z
+    var cx = width / 2, cy = height / 2;
+
     function applyPose(fp) {
-      var pose = poseAt(fp); lastPose = pose;
-      var k = 0, fi = 0;
-      // threeDPose 的 polys 顺序与 flat.facets 一致（都是 applyOp 重放的结果）
-      for (fi = 0; fi < pose.polys.length; fi++) {
-        var pts = pose.polys[fi].pts;
-        if (reversed[fi]) pts = pts.slice().reverse();
-        for (var i = 0; i < pts.length && k < n; i++) {
-          positions[k * 3] = pts[i][0]; positions[k * 3 + 1] = pts[i][1]; positions[k * 3 + 2] = pts[i][2];
+      var pose = threeDPose(steps, { width: width, height: height, ramp: rampAt(fp) });
+      var k = 0;
+      for (var fi = 0; fi < flat.facets.length; fi++) {
+        var P = pose.polys[fi], idx = order[fi];
+        for (var j = 0; j < idx.length; j++) {
+          var q = P.pts[idx[j]];
+          positions[k * 3] = q[0] - cx; positions[k * 3 + 1] = -(q[1] - cy); positions[k * 3 + 2] = q[2];
           k++;
         }
       }
-      return positions;
     }
     applyPose(1);
 
-    // 每片纸的固定颜色：按最终平面状态里看到的是正面还是反面来定（和平面视图一致，折叠过程中不变）
-    var colors = null;
-    if (opts.colors && opts.colors.front && opts.colors.back) {
-      colors = new Float32Array(n * 3);
-      var base2 = 0;
-      flatState.facets.forEach(function (f) {
-        var d2 = f.T.m[0] * f.T.m[3] - f.T.m[1] * f.T.m[2];
-        var col = d2 > 0 ? opts.colors.front : opts.colors.back;
-        for (var i3 = 0; i3 < f.poly.length && base2 + i3 < n; i3++) {
-          colors[(base2 + i3) * 3] = col[0]; colors[(base2 + i3) * 3 + 1] = col[1]; colors[(base2 + i3) * 3 + 2] = col[2];
-        }
-        base2 += f.poly.length;
-      });
-    }
-    // 深度偏置：叠在一起的层几何完全贴合，靠顶点深度偏置决定谁盖住谁（层号越大越靠前）
-    var bias = new Float32Array(n);
-    (function () {
-      var flatF = create({ width: width, height: height });
-      steps.forEach(function (st) { var rr = applyOp(flatF, st.op); if (!rr.error) flatF = rr.state; });
-      var maxLayer = 1;
-      flatF.facets.forEach(function (f) { maxLayer = Math.max(maxLayer, f.layer); });
-      var base = 0, fi2 = 0;
-      flatF.facets.forEach(function (f) {
-        var cnt = f.poly.length;
-        var b2 = -(f.layer / maxLayer) * 3e-4;      // 上层的 z 更小 → 深度测试时优先
-        for (var i2 = 0; i2 < cnt && base + i2 < n; i2++) bias[base + i2] = b2;
-        base += cnt;
-      });
-    })();
     var mesh = {
-      width: width, height: height, nodes2d: nodes2d, tris: tris, edges: [], hinges: [], warnings: [], bias: bias,
-      colors: colors || undefined, fixedColors: !!colors,
-      ambient: 1.0,                                     // 纯纸色、不带光影（折叠树模型）
-
-      lineIdx: lineIdxData.map(function (l) { return [l[0], l[1], l[2]]; })
+      width: width, height: height, nodes2d: nodes2d, tris: tris, edges: [], hinges: [], warnings: [],
+      lineIdx: lineIdx, bias: new Float32Array(biasArr),
+      ambient: 1.0          // 纯纸色（不被光照压暗），正/反面由几何朝向决定
     };
-    var model = {
+    return {
       isPose: true, mesh: mesh, n: n, positions: positions, x: positions,
-      params: { collision: false, thickness: 0.001, axialStiffness: 1, damping: 0.1, globalDamping: 0.05 },
-      v: new Float32Array(n * 3), grab: null, foldPercent: 1, _flatness: 0,
-      maxStage: nStage,
-      setFoldPercent: function (fp) { this.foldPercent = fp; applyPose(fp); return this; },
-      step: function () { return this; },
-      kinetic: function () { return 0; },
-      creaseError: function () { return 0; },
-      strainMax: function () { return 0; },
-      maxSpeed: function () { return 0; },
-      orient: function (alpha) {
-        // 不要自动转正：折叠姿态本来就是“纸面正面朝 +Z”，和平面视图一致；
-        // 转正会让整个模型翻个面，正反色看起来就反了。
-        return this;
-        /* eslint-disable no-unreachable */
-        alpha = alpha === undefined ? 0.12 : alpha;
-        var i, k, mn = [1e9, 1e9, 1e9], mx = [-1e9, -1e9, -1e9];
-        for (i = 0; i < n; i++) for (k = 0; k < 3; k++) { var t0 = positions[i * 3 + k]; if (t0 < mn[k]) mn[k] = t0; if (t0 > mx[k]) mx[k] = t0; }
-        var ctr = [(mn[0] + mx[0]) / 2, (mn[1] + mx[1]) / 2, (mn[2] + mx[2]) / 2];
-        var nrm = [0, 0, 0];
-        for (var t = 0; t < tris.length; t++) {
-          var A = tris[t][0] * 3, B = tris[t][1] * 3, C = tris[t][2] * 3;
-          var ux = positions[B] - positions[A], uy = positions[B + 1] - positions[A + 1], uz = positions[B + 2] - positions[A + 2];
-          var vx = positions[C] - positions[A], vy = positions[C + 1] - positions[A + 1], vz = positions[C + 2] - positions[A + 2];
-          nrm[0] += uy * vz - uz * vy; nrm[1] += uz * vx - ux * vz; nrm[2] += ux * vy - uy * vx;
-        }
-        var L = Math.sqrt(nrm[0] * nrm[0] + nrm[1] * nrm[1] + nrm[2] * nrm[2]);
-        if (L < 1e-9) return this;
-        nrm = [nrm[0] / L, nrm[1] / L, nrm[2] / L];
-        var up = [0, 0, 1];
-        var dot = Math.max(-1, Math.min(1, nrm[0] * up[0] + nrm[1] * up[1] + nrm[2] * up[2]));
-        var ang = Math.acos(dot) * alpha;
-        if (ang < 1e-5) return this;
-        var axis = [nrm[1] * up[2] - nrm[2] * up[1], nrm[2] * up[0] - nrm[0] * up[2], nrm[0] * up[1] - nrm[1] * up[0]];
-        var axL = Math.sqrt(axis[0] * axis[0] + axis[1] * axis[1] + axis[2] * axis[2]);
-        if (axL < 1e-9) return this;
-        axis = [axis[0] / axL, axis[1] / axL, axis[2] / axL];
-        var ca = Math.cos(ang), sa = Math.sin(ang), vv = 1 - ca;
-        var R = [ca + axis[0] * axis[0] * vv, axis[0] * axis[1] * vv - axis[2] * sa, axis[0] * axis[2] * vv + axis[1] * sa,
-          axis[1] * axis[0] * vv + axis[2] * sa, ca + axis[1] * axis[1] * vv, axis[1] * axis[2] * vv - axis[0] * sa,
-          axis[2] * axis[0] * vv - axis[1] * sa, axis[2] * axis[1] * vv + axis[0] * sa, ca + axis[2] * axis[2] * vv];
-        for (i = 0; i < n; i++) {
-          var x = positions[i * 3] - ctr[0], y = positions[i * 3 + 1] - ctr[1], z = positions[i * 3 + 2] - ctr[2];
-          positions[i * 3] = R[0] * x + R[1] * y + R[2] * z + ctr[0];
-          positions[i * 3 + 1] = R[3] * x + R[4] * y + R[5] * z + ctr[1];
-          positions[i * 3 + 2] = R[6] * x + R[7] * y + R[8] * z + ctr[2];
-        }
-        return this;
-      },
-      reset: function () { this.setFoldPercent(1); return this; },
+      params: { collision: false, thickness: 0.001 },
+      v: new Float32Array(n * 3), grab: null, foldPercent: 1, maxStage: nT,
+      setFoldPercent: function (fp) { if (fp !== this.foldPercent) { this.foldPercent = fp; applyPose(fp); } return this; },
+      step: function () { return this; }, kinetic: function () { return 0; }, maxSpeed: function () { return 0; },
+      creaseError: function () { return 0; }, orient: function () { return this; }, syncPositions: function () { return this; },
+      reset: function () { this.foldPercent = -1; return this.setFoldPercent(0); },
       strain: function () { return { max: 0, node: new Float32Array(n) }; },
       bounds: function () {
         var mn = [1e9, 1e9, 1e9], mx = [-1e9, -1e9, -1e9];
         for (var i = 0; i < n; i++) for (var q = 0; q < 3; q++) { var t = positions[i * 3 + q]; if (t < mn[q]) mn[q] = t; if (t > mx[q]) mx[q] = t; }
         return { min: mn, max: mx };
       },
-      syncPositions: function () { return this; },
       toOBJ: function (name) {
-        var out = ['o ' + (name || 'origami')], i, k;
+        var out = ['o ' + (name || 'origami')], i;
         for (i = 0; i < n; i++) out.push('v ' + positions[i * 3].toFixed(6) + ' ' + positions[i * 3 + 1].toFixed(6) + ' ' + positions[i * 3 + 2].toFixed(6));
-        for (k = 0; k < tris.length; k++) out.push('f ' + (tris[k][0] + 1) + ' ' + (tris[k][1] + 1) + ' ' + (tris[k][2] + 1));
+        tris.forEach(function (t) { out.push('f ' + (t[0] + 1) + ' ' + (t[1] + 1) + ' ' + (t[2] + 1)); });
         return out.join('\n');
       },
       toSTL: function () {
         var out = ['solid origami'];
-        for (var k = 0; k < tris.length; k++) {
-          var A = tris[k][0] * 3, B = tris[k][1] * 3, C = tris[k][2] * 3;
-          out.push('  facet normal 0 0 0\n    outer loop');
-          [A, B, C].forEach(function (o) { out.push('      vertex ' + positions[o].toFixed(6) + ' ' + positions[o + 1].toFixed(6) + ' ' + positions[o + 2].toFixed(6)); });
-          out.push('    endloop\n  endfacet');
-        }
+        tris.forEach(function (t) {
+          out.push('  facet normal 0 0 0', '    outer loop');
+          t.forEach(function (o) { out.push('      vertex ' + positions[o * 3].toFixed(6) + ' ' + positions[o * 3 + 1].toFixed(6) + ' ' + positions[o * 3 + 2].toFixed(6)); });
+          out.push('    endloop', '  endfacet');
+        });
         out.push('endsolid origami');
         return out.join('\n');
       }
     };
-    return model;
   }
 
   global.StepFold = {
@@ -7370,19 +7269,20 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
   }
   function stepTo3D() {
     var v = S.stepView; if (!v) return;
-    var steps = v.getSteps();
+    if (v.anim) v._finishAnim();
+    // 只取到“当前这一步”为止：3D 显示的就是你在分步视图里正看着的那个状态
+    var steps = v.getSteps().slice(0, v.getInfo().stepIndex);
     if (!steps.length || !steps.some(function (st) { return st.op && st.op.type === 'fold'; })) { toast('还没有折痕，先折几下吧', true); return; }
     var doc = v.getCreasePattern();
     var name = ($('stepModelSel').selectedOptions[0] && $('stepModelSel').value ? $('stepModelSel').selectedOptions[0].textContent.replace(/（.*$/, '') : '分步折叠') + ' 折痕';
     doc.name = doc.name || name;
     // 直接从折叠树生成 3D（不走折痕图重建：多层折痕图对求解器是矛盾的，会算歪）
     var pm;
-    var colFront = (v.front || S.front || [232, 85, 61]).map(function (c) { return c / 255; });
-    var colBack = (v.back || S.back || [246, 241, 231]).map(function (c) { return c / 255; });
-    try { pm = StepFold.buildPoseModel(steps, { width: doc.width, height: doc.height, colors: { front: colFront, back: colBack } }); }
+    try { pm = StepFold.buildPoseModel(steps, { width: doc.width, height: doc.height }); }
     catch (e) { console.error(e); }
     switchMode('sim');
     if (!pm) { loadDoc(doc, { foldPercent: 0.9 }); return; }
+    if ($('stFront') && $('stBack')) setColors($('stFront').value, $('stBack').value);
     S.doc = cleanDoc(doc);
     S.presetId = null;
     S.mesh = pm.mesh;
@@ -7391,7 +7291,7 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
     S.fp = 0; S.settled = 0; S.fitPending = true; S.sleepT = 0;
     if (S.renderer) {
       S.renderer.setMesh(rendererMesh(pm.mesh, pm));
-      S.renderer.fixedColors = true;          // 每片纸颜色按平面视图里的正/反面固定，折叠过程中不变
+      S.renderer.fixedColors = false;         // 正/反面按纸片真实朝向着色，和平面视图同一套规则
       S.renderer.fit(false);
     }
     updateInfo(); updateCPPanel(); renderParams();

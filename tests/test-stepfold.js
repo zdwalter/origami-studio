@@ -1,7 +1,7 @@
 // Node tests for the step-fold engine and every tutorial model.
 var path = require('path');
 ['geom', 'cp', 'stepfold', 'stepmodels'].forEach(function (f) { require(path.join(__dirname, '..', 'js', f + '.js')); });
-var SF = globalThis.StepFold, SM = globalThis.StepModels, CP = globalThis.CP;
+var SF = globalThis.StepFold, SM = globalThis.StepModels, CP = globalThis.CP, OG = globalThis.OG;
 var fails = 0, passes = 0;
 function ok(c, m) { if (c) passes++; else { fails++; console.log('FAIL:', m); } }
 function near(a, b, t, m) { ok(Math.abs(a - b) <= t, m + ' (' + a + ' vs ' + b + ')'); }
@@ -217,6 +217,64 @@ SM.list().forEach(function (meta) {
   ok(s1[2] > 0.2, '折叠树模型：100% 时折出立体形状（z 跨度 ' + s1[2].toFixed(3) + '）');
   ok(s0[0] > s1[0] * 2, '折叠树模型：折完后尺寸明显变小（' + s0[0].toFixed(2) + ' → ' + s1[0].toFixed(2) + '）');
   ok(typeof pm.toOBJ('x') === 'string' && pm.toOBJ('x').indexOf('v ') > 0, '折叠树模型：可导出 OBJ');
+})();
+
+// ---- 3D 折叠树模型与平面视图逐步一致：正反面、几何、折叠方向（层序）
+(function () {
+  function inv(T) { var m = T.m, d = m[0] * m[3] - m[1] * m[2]; var im = [m[3] / d, -m[1] / d, -m[2] / d, m[0] / d]; return { m: im, t: [-(im[0] * T.t[0] + im[2] * T.t[1]), -(im[1] * T.t[0] + im[3] * T.t[1])] }; }
+  function to3(poly2, pts3, q) {
+    var a = poly2[0], b = poly2[1], c = null, ci = 2;
+    for (; ci < poly2.length; ci++) { c = poly2[ci]; if (Math.abs(OG.orient(a, b, c)) > 1e-9) break; }
+    var dt = (b[0] - a[0]) * (c[1] - a[1]) - (c[0] - a[0]) * (b[1] - a[1]);
+    var u = ((q[0] - a[0]) * (c[1] - a[1]) - (c[0] - a[0]) * (q[1] - a[1])) / dt, v = ((b[0] - a[0]) * (q[1] - a[1]) - (q[0] - a[0]) * (b[1] - a[1])) / dt;
+    var A = pts3[0], B = pts3[1], C = pts3[ci];
+    return [A[0] + u * (B[0] - A[0]) + v * (C[0] - A[0]), A[1] + u * (B[1] - A[1]) + v * (C[1] - A[1]), A[2] + u * (B[2] - A[2]) + v * (C[2] - A[2])];
+  }
+  var sideBad = 0, dirBad = 0, checked = 0;
+  SM.list().forEach(function (mm) {
+    var m = SM.get(mm.id);
+    m.steps.forEach(function (step, i) {
+      var sub = m.steps.slice(0, i + 1);
+      var before = SF.create({ width: m.width, height: m.height });
+      m.steps.slice(0, i).forEach(function (s) { var r0 = SF.applyOp(before, s.op); if (!r0.error) before = r0.state; });
+      var r = SF.applyOp(before, step.op); if (r.error) return;
+      var after = r.state;
+      // (a) 全部 180°：每片纸露出的面（正/反）与平面视图相同
+      var flatA = {}; sub.forEach(function (_, k) { flatA[k] = 180; });
+      var pf = SF.threeDPose(sub, { width: m.width, height: m.height, angles: flatA });
+      after.facets.forEach(function (f, k) { if ((pf.polys[k].front[2] > 0) !== (SF.affine.det(f.T) > 0)) sideBad++; });
+      // (b) 这一折开到 170°：被折动的纸片在平面视图里在上层的，三维里也要在上方
+      if (step.op.type !== 'fold') return;
+      var moved = {}; (r.moved || []).forEach(function (id) { moved[id] = 1; });
+      var ang = {}; sub.forEach(function (_, k) { ang[k] = k === i ? 170 : 180; });
+      var pose = SF.threeDPose(sub, { width: m.width, height: m.height, angles: ang });
+      after.facets.forEach(function (A, a) {
+        if (!moved[A.id]) return;
+        after.facets.forEach(function (B, b) {
+          if (moved[B.id]) return;
+          var PA = A.poly.map(function (q) { return SF.affine.apply(A.T, q); }), PB = B.poly.map(function (q) { return SF.affine.apply(B.T, q); });
+          var cA = OG.polyCentroid(PA), cB = OG.polyCentroid(PB), cands = [cA, cB], pt = null;
+          PA.forEach(function (q) { cands.push(OG.lerp(cA, q, 0.8)); }); PB.forEach(function (q) { cands.push(OG.lerp(cB, q, 0.8)); });
+          cands.forEach(function (c) { if (!pt && OG.pointInPoly(c, PA) && OG.pointInPoly(c, PB) && !OG.pointOnPolyBoundary(c, PA, 1e-5) && !OG.pointOnPolyBoundary(c, PB, 1e-5)) pt = c; });
+          if (!pt) return;
+          checked++;
+          var zA = to3(A.poly, pose.polys[a].pts, SF.affine.apply(inv(A.T), pt))[2], zB = to3(B.poly, pose.polys[b].pts, SF.affine.apply(inv(B.T), pt))[2];
+          if ((A.layer > B.layer) !== (zA > zB)) dirBad++;
+        });
+      });
+    });
+  });
+  ok(sideBad === 0, '3D 与平面视图：每一步每片纸露出的正/反面一致（不一致 ' + sideBad + '）');
+  ok(checked > 50 && dirBad === 0, '3D 与平面视图：每一步折叠方向/上下层一致（检查 ' + checked + ' 对，错 ' + dirBad + '）');
+  // (c) 折叠树模型：顶点绕向统一（平放时全部正面朝 +Z）
+  var g = SM.get('glider'), pm = SF.buildPoseModel(g.steps, { width: g.width, height: g.height });
+  pm.setFoldPercent(0);
+  var up = 0, dn = 0, P = pm.positions;
+  pm.mesh.tris.forEach(function (t) {
+    var ax = P[t[1] * 3] - P[t[0] * 3], ay = P[t[1] * 3 + 1] - P[t[0] * 3 + 1], bx = P[t[2] * 3] - P[t[0] * 3], by = P[t[2] * 3 + 1] - P[t[0] * 3 + 1];
+    if (ax * by - ay * bx > 0) up++; else dn++;
+  });
+  ok(dn === 0 && up > 0, '折叠树模型：展开时所有三角形正面朝观察者（' + up + '/' + (up + dn) + '）');
 })();
 console.log(passes + ' passed, ' + fails + ' failed');
 process.exit(fails ? 1 : 0);
