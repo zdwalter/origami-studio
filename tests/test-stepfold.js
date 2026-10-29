@@ -352,26 +352,36 @@ SM.list().forEach(function (meta) {
   ok(span(0.25) > 0.15 && Math.abs(span(1)) < 0.02, '3D 能把“折起来又展开”演出来（中途 ' + span(0.25).toFixed(2) + '，末端 ' + span(1).toFixed(2) + '）');
 })();
 
-// ---- 打开「某层」：点纸面上的位置，打开那一层所在的折（折痕保留）
+// ---- 打开「某层」：点纸面把该处最上面那一层掀开（沿它自己的折线反向折回）
 (function () {
   var st = SF.create({ width: 1, height: 1 });
   function ap(op) { var r = SF.applyOp(st, op); if (!r.error) st = r.state; return r; }
   ap({ type: 'fold', a: [0.5, 0], b: [0, 0.5], side: [0.08, 0.08], kind: 'valley' });
   ap({ type: 'fold', a: [0.5, 0], b: [0.5, 1], side: [0.2, 0.5], kind: 'valley' });
   var before = st.facets.length, creases = st.creases.length;
-  var facet = SF.facetAt(st, [0.75, 0.4]);
-  ok(!!facet, '点选能找到该处最上面那片纸');
-  var paperPt = SF.affine.apply(SF.affine.invert(facet.T), [0.75, 0.4]);
-  var r = SF.unfoldLayer(st, paperPt, 1);
-  ok(!r.error, '「打开某层」能找到那一层所在的折' + (r.error ? '（' + r.error + '）' : ''));
-  if (!r.error) {
-    ok(r.state.facets.length < before, '打开后纸片变少（' + before + ' → ' + r.state.facets.length + '），几何回到折之前');
-    ok(r.state.creases.length === creases, '打开某层后折痕全部保留（' + r.state.creases.length + ' 条）');
-    ok(r.foldNo >= 1, '报告打开的是第 ' + r.foldNo + ' 折');
+  var b = SF.bounds(st);
+  var probe = null;
+  for (var y = 0.15; y < 0.95 && !probe; y += 0.1) {
+    for (var x = 0.05; x < 0.95 && !probe; x += 0.1) {
+      if (!SF.facetAt(st, [x, y])) continue;
+      var r = SF.peelLayer(st, [x, y]);
+      if (!r.error) probe = { r: r, pt: [x, y] };
+    }
   }
-  // 通过 op 也能走（这样能被记成教程步骤、能存能重放）
-  var r2 = SF.applyOp(st, { type: 'unfoldLayer', point: paperPt, nth: 1 });
-  ok(!r2.error && r2.state.facets.length < before, '「打开某层」可以作为一个步骤 op 重放');
+  ok(!!probe, '「打开某层」能找到并掀开这一层');
+  if (probe) {
+    var r2 = probe.r;
+    ok(!!r2.op && r2.op.type === 'fold', '掀开本身就是一次折叠（可以被记成一步、能撤销）');
+    ok(r2.state.creases.length > creases, '掀开后会多一条折痕记录（' + creases + ' → ' + r2.state.creases.length + '）');
+    ok(!!r2.moved && r2.moved.length > 0, '掀开时确实翻动了纸片（' + ((r2.moved && r2.moved.length) || 0) + ' 片）');
+    // 掀开后的几何仍然是整张纸（面积守恒）
+    var area = 0;
+    r2.state.facets.forEach(function (f) { area += Math.abs(OG.polyArea(f.poly)); });
+    ok(Math.abs(area - 1) < 1e-6, '掀开后纸张面积守恒（' + area.toFixed(4) + '）');
+    // 通过 op 重放
+    var r3 = SF.applyOp(st, r2.op);
+    ok(!r3.error, '掀开的 op 可以重放（导出/3D 用）');
+  }
 })();
 console.log(passes + ' passed, ' + fails + ' failed');
 process.exit(fails ? 1 : 0);

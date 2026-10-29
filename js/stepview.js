@@ -75,19 +75,33 @@
   };
   P.flip = function () { this._userOp({ type: 'flip' }, '翻面', '把纸翻过来。'); };
   P.rotate = function (deg) { this._userOp({ type: 'rotate', deg: deg }, '旋转 ' + (deg > 0 ? '+' : '') + deg + '°', '在桌面上旋转纸张。'); };
-  /** 点击处：打开该处最上面那一层所在的折（再点一次继续往下一层开） */
+  /**
+   * 点击处：把该处最上面那一层“掀开”（沿它自己的折线反向折一次），
+   * 再点一次就掀下面一层。掀开是可撤销的一步，折痕保留。
+   */
   P.unfoldLayerAt = function (world) {
-    var facet = SF.facetAt(this.state(), world);
+    var st0 = this.state();
+    var facet = SF.facetAt(st0, world);
     if (!facet) { this.onStatus('这里没有纸'); return false; }
-    var inv = SF.affine.invert(facet.T);
-    var paperPt = SF.affine.apply(inv, world);
-    var probe = SF.unfoldLayer(this.state(), paperPt, 1);
-    if (probe.error) { this.onStatus('⚠ ' + probe.error); return false; }
-    var n = (this.steps.filter(function (x) { return x.user; }).length) + 1;
-    return this._userOp({ type: 'unfoldLayer', point: paperPt, nth: 1 },
-      '打开某层（第 ' + n + ' 次自定义）',
-      '打开点到的那一层所在的折（该处共 ' + probe.layerCount + ' 层），折痕保留');
+    var layerFromTop = 1;
+    st0.facets.forEach(function (f) {
+      if (f === facet) return;
+      if (OG.pointInPoly(world, f.poly.map(function (q) { return SF.affine.apply(f.T, q); })) && f.layer > facet.layer) layerFromTop++;
+    });
+    var probe = SF.peelLayer(st0, world);
+    if (probe.error) {
+      var r2 = SF.unfoldLayer(st0, SF.affine.apply(SF.affine.invert(facet.T), world), 1);
+      if (r2.error) { this.onStatus('⚠ ' + probe.error); return false; }
+      var n2 = this.steps.filter(function (x) { return x.user; }).length + 1;
+      return this._userOp({ type: 'unfoldLayer', point: SF.affine.apply(SF.affine.invert(facet.T), world), nth: 1 },
+        '打开第 1 层（第 ' + n2 + ' 次自定义）', '打开这一层所在的折，折痕保留');
+    }
+    var n = this.steps.filter(function (x) { return x.user; }).length + 1;
+    this.onStatus('把第 ' + layerFromTop + ' 层掀开了（沿它自己的折线折回）');
+    return this._userOp(probe.op, '掀开第 ' + layerFromTop + ' 层（第 ' + n + ' 次自定义）',
+      '沿这一层自己的折线把它反向折开，露出下面一层；折痕保留，可撤销');
   };
+
   P.setTool = function (t) { this.tool = t; this.ui = { mode: 'idle' }; this.dirty = true; this.onStatus(this._hint()); this.canvas.style.cursor = t === 'pan' ? 'grab' : 'crosshair'; };
   P.setKind = function (k) { this.kind = k === 'mountain' ? 'mountain' : 'valley'; this._invalidatePreview(); };
   P.setScope = function (s) { this.scope = s; this._invalidatePreview(); };
@@ -275,8 +289,7 @@
     if (op.type === 'fold') return { type: 'fold', a: op.a, b: op.b, kind: op.kind, moved: r.moved };
     if (op.type === 'flip') { var c = SF.bounds(before).center; return { type: 'flip', a: [c[0], c[1] - 1], b: [c[0], c[1] + 1], kind: 'valley', moved: 'all' }; }
     if (op.type === 'crease') return { type: 'crease', a: op.a, b: op.b, kind: op.kind, moved: r.moved };
-    if (op.type === 'unfold') return { type: 'instant' };
-    if (op.type === 'unfoldAll') return { type: 'instant' };
+    if (op.type === 'unfold' || op.type === 'unfoldAll' || op.type === 'unfoldLayer' || op.type === 'peelLayer') return { type: 'instant' };
     return { type: 'rotate', deg: op.deg, center: SF.bounds(before).center };
   };
   P._userOp = function (op, title, desc) {
@@ -370,12 +383,16 @@
     var t = ease(Math.min(1, (performance.now() - a.t0) / DUR));
     var m = a.meta;
     if (m.type === 'instant') return faces.map(function (f) { return { pts: f.poly.map(self.toScreen, self), face: f, back: f.flipped, light: 1, lift: 0 }; });
-    if (m.type === 'rotate') {
+    if (m.type === 'rotate' && m.deg && m.center) {
       var ang = -(a.dir > 0 ? 1 - t : t) * m.deg * Math.PI / 180, c = m.center;
       return faces.map(function (f) { return { pts: f.poly.map(function (p) { return self.toScreen(OG.rotate(p, ang, c)); }), face: f, back: f.flipped, light: 1, lift: 0 }; });
     }
     // 折出折痕再展开：折到一半再回到原位
+    if (m.type !== 'fold' && m.type !== 'crease') {
+      return faces.map(function (f) { return { pts: f.poly.map(self.toScreen, self), face: f, back: f.flipped, light: 1, lift: 0 }; });
+    }
     var theta = m.type === 'crease' ? Math.PI * Math.sin(Math.PI * t) : Math.PI * (a.dir > 0 ? t : 1 - t);
+    if (!isFinite(theta)) theta = 0;
     var movedSet = {};
     if (m.moved === 'all') faces.forEach(function (f) { movedSet[f.id] = 1; }); else m.moved.forEach(function (id) { movedSet[id] = 1; });
     var A = m.a, u = OG.norm(OG.sub(m.b, m.a)), R = SF.affine.reflection(m.a, m.b);
@@ -383,7 +400,11 @@
     var b = SF.bounds(st), size = Math.max(b.width, b.height, 0.3), focal = size * 3.2;
     var vc = this.toWorld(this.W / 2, this.H / 2);
     var cos = Math.cos(theta), sin = Math.sin(theta);
-    function proj(p, z) { var k = focal / (focal - z); return self.toScreen([vc[0] + (p[0] - vc[0]) * k, vc[1] + (p[1] - vc[1]) * k]); }
+    function proj(p, z) {
+      // 掀开远处的层时 z 可能接近焦点距离，这里夹一下，避免除零产生 NaN
+      var k = focal / Math.max(focal * 0.08, focal - z);
+      return self.toScreen([vc[0] + (p[0] - vc[0]) * k, vc[1] + (p[1] - vc[1]) * k]);
+    }
     var stat = [], mov = [];
     faces.forEach(function (f) {
       if (!movedSet[f.id]) { stat.push({ pts: f.poly.map(self.toScreen, self), face: f, back: f.flipped, light: 1, lift: 0 }); return; }

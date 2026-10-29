@@ -5487,11 +5487,17 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
     s.creases = s.creases.concat(creases);
     compactLayers(s);
     // 记下这一折“动了哪些纸面区域”（纸面坐标，翻面/旋转都不影响），供「打开某层」判断
-    var movedCens = moved.map(function (id) {
-      for (var i = 0; i < s.facets.length; i++) if (s.facets[i].id === id) return OG.polyCentroid(s.facets[i].poly);
-      return null;
-    }).filter(Boolean);
-    s.ops = (state.ops || []).concat([{ type: 'fold', a: op.a, b: op.b, side: op.side, kind: op.kind, scope: op.scope, movedCens: movedCens }]);
+    var movedPolys = [], movedCens = [];
+    moved.forEach(function (id) {
+      for (var i = 0; i < s.facets.length; i++) {
+        if (s.facets[i].id !== id) continue;
+        movedPolys.push(s.facets[i].poly.map(function (q) { return q.slice(); }));
+        movedCens.push(OG.polyCentroid(s.facets[i].poly));
+        return;
+      }
+    });
+    s.ops = (state.ops || []).concat([{ type: 'fold', a: op.a, b: op.b, side: op.side, kind: op.kind, scope: op.scope,
+      movedCens: movedCens, movedPolys: movedPolys }]);
     return { state: s, moved: moved, creases: creases };
   }
 
@@ -5572,6 +5578,43 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
     return { state: st, foldNo: idx + 1 };
   }
 
+
+  /**
+   * 打开某层（把这一层掀开折回去）：在平面点 planePoint 处取最上面那一层，
+   * 找它的折线（与该纸片边界重合的折痕），沿这条折线把它反向折一次。
+   * 折叠引擎里连续两次关于同一条线折叠 = 恒等，所以它就是“打开”。
+   */
+  function peelLayer(state, planePoint) {
+    var f = facetAt(state, planePoint);
+    if (!f) return { error: '这里没有纸' };
+    // 该纸片在平面里的多边形
+    var P = f.poly.map(function (q) { return apply(f.T, q); });
+    // 找与该纸片某条边重合的折痕（平面里比）
+    var best = null;
+    state.creases.forEach(function (c) {
+      var pa = apply(f.T, c.a), pb = apply(f.T, c.b);
+      for (var i = 0; i < P.length; i++) {
+        var A = P[i], B = P[(i + 1) % P.length], L = OG.dist(A, B);
+        if (L < 1e-9) continue;
+        if (OG.pointSegDist(pa, A, B) < 1e-6 && OG.pointSegDist(pb, A, B) < 1e-6) {
+          if (!best || L > best.len) best = { a: A, b: B, len: L, type: c.type, stage: c.stage };
+          break;
+        }
+      }
+    });
+    if (!best) return { error: '这一层找不到可以掀开的折线' };
+    var cen = OG.polyCentroid(P);
+    // 反向折：类型取反，折完这一层就回到原来的位置（打开）
+    var kind = best.type === 'V' ? 'mountain' : 'valley';
+    var op = { type: 'fold', a: best.a, b: best.b, side: cen, kind: kind, scope: 'top' };
+    var r = fold(state, op);
+    if (r.error) return r;
+    r.peeled = true;
+    r.foldLine = best;
+    r.op = op;                            // 供上层记成一步（本质上就是一次折）
+    return r;
+  }
+
   /**
    * 打开「某层」：在纸面点 point 处，从最上层往下数第 nth 层（1 基），
    * 把它所在的这一折打开（只打开影响这一层的最后一折）。翻面/旋转之后同样适用。
@@ -5582,19 +5625,26 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
     state.facets.forEach(function (f) { if (insidePoly(point, f.poly)) stack.push(f); });
     if (!stack.length) return { error: '这里没有纸' };
     stack.sort(function (a, b) { return b.layer - a.layer; });
-    var target = stack[Math.min(nth, stack.length) - 1];
     var ops = state.ops || [];
-    var idx = -1;
+    // 找出「动过这个纸面点」的所有折（从最近往前）：第 n 层 = 倒数第 n 个
+    var hits = [];
     for (var i = ops.length - 1; i >= 0; i--) {
-      if (ops[i].type !== 'fold' || !ops[i].movedCens) continue;
-      var hit = ops[i].movedCens.some(function (c) { return insidePoly(c, target.poly) || OG.pointInPoly(c, target.poly); });
-      if (hit) { idx = i; break; }
+      var o = ops[i];
+      if (o.type !== 'fold') continue;
+      var moved = false;
+      if (o.movedPolys && o.movedPolys.length) moved = o.movedPolys.some(function (poly) { return OG.pointInPoly(point, poly); });
+      else if (o.movedCens) moved = o.movedCens.some(function (c) { return OG.pointInPoly(c, stack[0].poly); });
+      if (moved) hits.push(i);
     }
-    if (idx < 0) return { error: '这一层没有可以打开的折（可能本来就是最底层）' };
+    if (!hits.length) {
+      return { error: '这一处没有折起来的层可以打开（可能本来就是一整张）' };
+    }
+    var idx = hits[Math.min(nth, hits.length) - 1];
     var r = removeFold(state, idx);
     if (r.error) return r;
     r.layerFromTop = Math.min(nth, stack.length);
     r.layerCount = stack.length;
+    r.foldCountHere = hits.length;
     return r;
   }
 
@@ -5646,6 +5696,7 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
     if (op.type === 'crease') return crease(state, op);
     if (op.type === 'unfold') return unfold(state);
     if (op.type === 'unfoldLayer') return unfoldLayer(state, op.point, op.nth || 1);
+    if (op.type === 'peelLayer') return peelLayer(state, op.point);
     if (op.type === 'unfoldAll') return unfoldAll(state);
     return fold(state, op);
   }
@@ -5996,7 +6047,7 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
     var timed = [];
     steps.forEach(function (st, i) {
       var t = st.op.type;
-      if (t === 'fold' || t === 'flip' || t === 'unfold' || t === 'unfoldLayer' || t === 'unfoldAll' || (t === 'rotate' && st.op.deg)) timed.push(i);
+      if (t === 'fold' || t === 'peelLayer' || t === 'flip' || t === 'unfold' || t === 'unfoldLayer' || t === 'unfoldAll' || (t === 'rotate' && st.op.deg)) timed.push(i);
     });
     var nT = Math.max(1, timed.length);
     var slot = {}; timed.forEach(function (i, k) { slot[i] = k; });
@@ -6149,7 +6200,7 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
     lineFromPoints: lineFromPoints, pointToPoint: pointToPoint, edgeToEdge: edgeToEdge,
     visibleFaces: visibleFaces, outlineEdges: outlineEdges, snapPoints: snapPoints, totalArea: totalArea,
     creasePattern: creasePattern, threeDPose: threeDPose, buildPoseModel: buildPoseModel, serialize: serialize, deserialize: deserialize,
-    unfoldLayer: unfoldLayer, removeFold: removeFold, facetAt: facetAt,
+    unfoldLayer: unfoldLayer, removeFold: removeFold, facetAt: facetAt, peelLayer: peelLayer,
     affine: { apply: apply, compose: compose, invert: invert, det: det, reflection: reflection }
   };
 })(typeof window !== 'undefined' ? window : globalThis);
@@ -6447,19 +6498,33 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
   };
   P.flip = function () { this._userOp({ type: 'flip' }, '翻面', '把纸翻过来。'); };
   P.rotate = function (deg) { this._userOp({ type: 'rotate', deg: deg }, '旋转 ' + (deg > 0 ? '+' : '') + deg + '°', '在桌面上旋转纸张。'); };
-  /** 点击处：打开该处最上面那一层所在的折（再点一次继续往下一层开） */
+  /**
+   * 点击处：把该处最上面那一层“掀开”（沿它自己的折线反向折一次），
+   * 再点一次就掀下面一层。掀开是可撤销的一步，折痕保留。
+   */
   P.unfoldLayerAt = function (world) {
-    var facet = SF.facetAt(this.state(), world);
+    var st0 = this.state();
+    var facet = SF.facetAt(st0, world);
     if (!facet) { this.onStatus('这里没有纸'); return false; }
-    var inv = SF.affine.invert(facet.T);
-    var paperPt = SF.affine.apply(inv, world);
-    var probe = SF.unfoldLayer(this.state(), paperPt, 1);
-    if (probe.error) { this.onStatus('⚠ ' + probe.error); return false; }
-    var n = (this.steps.filter(function (x) { return x.user; }).length) + 1;
-    return this._userOp({ type: 'unfoldLayer', point: paperPt, nth: 1 },
-      '打开某层（第 ' + n + ' 次自定义）',
-      '打开点到的那一层所在的折（该处共 ' + probe.layerCount + ' 层），折痕保留');
+    var layerFromTop = 1;
+    st0.facets.forEach(function (f) {
+      if (f === facet) return;
+      if (OG.pointInPoly(world, f.poly.map(function (q) { return SF.affine.apply(f.T, q); })) && f.layer > facet.layer) layerFromTop++;
+    });
+    var probe = SF.peelLayer(st0, world);
+    if (probe.error) {
+      var r2 = SF.unfoldLayer(st0, SF.affine.apply(SF.affine.invert(facet.T), world), 1);
+      if (r2.error) { this.onStatus('⚠ ' + probe.error); return false; }
+      var n2 = this.steps.filter(function (x) { return x.user; }).length + 1;
+      return this._userOp({ type: 'unfoldLayer', point: SF.affine.apply(SF.affine.invert(facet.T), world), nth: 1 },
+        '打开第 1 层（第 ' + n2 + ' 次自定义）', '打开这一层所在的折，折痕保留');
+    }
+    var n = this.steps.filter(function (x) { return x.user; }).length + 1;
+    this.onStatus('把第 ' + layerFromTop + ' 层掀开了（沿它自己的折线折回）');
+    return this._userOp(probe.op, '掀开第 ' + layerFromTop + ' 层（第 ' + n + ' 次自定义）',
+      '沿这一层自己的折线把它反向折开，露出下面一层；折痕保留，可撤销');
   };
+
   P.setTool = function (t) { this.tool = t; this.ui = { mode: 'idle' }; this.dirty = true; this.onStatus(this._hint()); this.canvas.style.cursor = t === 'pan' ? 'grab' : 'crosshair'; };
   P.setKind = function (k) { this.kind = k === 'mountain' ? 'mountain' : 'valley'; this._invalidatePreview(); };
   P.setScope = function (s) { this.scope = s; this._invalidatePreview(); };
@@ -6647,8 +6712,7 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
     if (op.type === 'fold') return { type: 'fold', a: op.a, b: op.b, kind: op.kind, moved: r.moved };
     if (op.type === 'flip') { var c = SF.bounds(before).center; return { type: 'flip', a: [c[0], c[1] - 1], b: [c[0], c[1] + 1], kind: 'valley', moved: 'all' }; }
     if (op.type === 'crease') return { type: 'crease', a: op.a, b: op.b, kind: op.kind, moved: r.moved };
-    if (op.type === 'unfold') return { type: 'instant' };
-    if (op.type === 'unfoldAll') return { type: 'instant' };
+    if (op.type === 'unfold' || op.type === 'unfoldAll' || op.type === 'unfoldLayer' || op.type === 'peelLayer') return { type: 'instant' };
     return { type: 'rotate', deg: op.deg, center: SF.bounds(before).center };
   };
   P._userOp = function (op, title, desc) {
@@ -6742,12 +6806,16 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
     var t = ease(Math.min(1, (performance.now() - a.t0) / DUR));
     var m = a.meta;
     if (m.type === 'instant') return faces.map(function (f) { return { pts: f.poly.map(self.toScreen, self), face: f, back: f.flipped, light: 1, lift: 0 }; });
-    if (m.type === 'rotate') {
+    if (m.type === 'rotate' && m.deg && m.center) {
       var ang = -(a.dir > 0 ? 1 - t : t) * m.deg * Math.PI / 180, c = m.center;
       return faces.map(function (f) { return { pts: f.poly.map(function (p) { return self.toScreen(OG.rotate(p, ang, c)); }), face: f, back: f.flipped, light: 1, lift: 0 }; });
     }
     // 折出折痕再展开：折到一半再回到原位
+    if (m.type !== 'fold' && m.type !== 'crease') {
+      return faces.map(function (f) { return { pts: f.poly.map(self.toScreen, self), face: f, back: f.flipped, light: 1, lift: 0 }; });
+    }
     var theta = m.type === 'crease' ? Math.PI * Math.sin(Math.PI * t) : Math.PI * (a.dir > 0 ? t : 1 - t);
+    if (!isFinite(theta)) theta = 0;
     var movedSet = {};
     if (m.moved === 'all') faces.forEach(function (f) { movedSet[f.id] = 1; }); else m.moved.forEach(function (id) { movedSet[id] = 1; });
     var A = m.a, u = OG.norm(OG.sub(m.b, m.a)), R = SF.affine.reflection(m.a, m.b);
@@ -6755,7 +6823,11 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
     var b = SF.bounds(st), size = Math.max(b.width, b.height, 0.3), focal = size * 3.2;
     var vc = this.toWorld(this.W / 2, this.H / 2);
     var cos = Math.cos(theta), sin = Math.sin(theta);
-    function proj(p, z) { var k = focal / (focal - z); return self.toScreen([vc[0] + (p[0] - vc[0]) * k, vc[1] + (p[1] - vc[1]) * k]); }
+    function proj(p, z) {
+      // 掀开远处的层时 z 可能接近焦点距离，这里夹一下，避免除零产生 NaN
+      var k = focal / Math.max(focal * 0.08, focal - z);
+      return self.toScreen([vc[0] + (p[0] - vc[0]) * k, vc[1] + (p[1] - vc[1]) * k]);
+    }
     var stat = [], mov = [];
     faces.forEach(function (f) {
       if (!movedSet[f.id]) { stat.push({ pts: f.poly.map(self.toScreen, self), face: f, back: f.flipped, light: 1, lift: 0 }); return; }
