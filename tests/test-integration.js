@@ -210,6 +210,24 @@ var fails = 0; function ok(c, m) { console.log((c ? 'ok   ' : 'FAIL ') + m); if 
   ok(gh.btnTarget === '_blank', 'GitHub 按钮在新标签页打开');
   ok(gh.helpLink === gh.btn, '帮助面板里也有源码地址');
 
+  // 12. 「压痕」：一步折了再展开，只留折痕
+  var crease = await page.evaluate(function () {
+    document.querySelector('.mode-tab[data-mode="step"]').click();
+    var v = window.OrigamiStudio.stepView;
+    v.reset(1, 1);
+    document.getElementById('stCreaseOnly').click();
+    v.setCreaseOnly(true);
+    v.ui = { mode: 'side', line: { a: [0.5, 0], b: [0.5, 1] } };
+    v._updatePreview([0.2, 0.5]);
+    v._commit();
+    var st = v.state(), step = v.getSteps()[0];
+    var out = { type: step && step.op.type, facets: st.facets.length, creases: st.creases.length, creaseOnly: v.creaseOnly };
+    document.getElementById('stCreaseOnly').click();
+    return out;
+  });
+  ok(crease.type === 'crease', '「压痕」按钮折一下再展开，记成压痕步骤');
+  ok(crease.facets === 1 && crease.creases === 1, '压痕后纸保持平面、留下 1 条折痕');
+
   ok(!logs.length, 'no console errors ' + logs.join(' | '));
   await browser.close();
   console.log(fails ? fails + ' FAILED' : 'ALL OK');

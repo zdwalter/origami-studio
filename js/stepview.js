@@ -17,7 +17,7 @@
     opts = opts || {};
     this.canvas = canvas; this.ctx = canvas.getContext('2d');
     this.onChange = opts.onChange || function () { }; this.onStatus = opts.onStatus || function () { };
-    this.tool = 'line'; this.kind = 'valley'; this.scope = 'all';
+    this.tool = 'line'; this.kind = 'valley'; this.scope = 'all'; this.creaseOnly = false;
     this.front = hexRgb('#e8553d'); this.back = hexRgb('#f6f1e7');
     this.view = { s: 300, ox: 0, oy: 0 }; this.viewGoal = null; this.userView = false;
     this.ui = { mode: 'idle' };
@@ -88,8 +88,10 @@
   /** 打开上一折（几何复原一步，折痕保留） */
   P.unfoldOne = function () {
     var st = this.state();
-    if (!st.snaps || !st.snaps.length) { this.onStatus('没有可以打开的折了（翻面后的折需要用「展开复原」）'); return false; }
-    return this._userOp({ type: 'unfold' }, '打开上一折', '把最近折的那一下打开，折痕保留');
+    // 按「折」的历史判断（翻面/旋转之后也能打开上次的折）
+    var hasFold = (st.ops || []).some(function (o) { return o.type === 'fold'; }) || (st.snaps && st.snaps.length);
+    if (!hasFold) { this.onStatus('还没有可以打开的折了'); return false; }
+    return this._userOp({ type: 'unfold' }, '打开上一折（留折痕）', '把最近折的那一下打开，折痕留在纸上');
   };
 
   /** 手动指定展开角度（null = 用模型自带的角度） */
@@ -582,11 +584,13 @@
   };
   P._invalidatePreview = function () { if (this.ui) { this.ui.previewKey = null; if (this.ui.lastW) this._updatePreview(this.ui.lastW); } this.dirty = true; };
   P._makeOp = function (line, side) {
-    var op = { type: 'fold', a: line.a, b: line.b, side: side, kind: this.kind, scope: this.scope };
+    var op = { type: this.creaseOnly ? 'crease' : 'fold', a: line.a, b: line.b, side: side, kind: this.kind, scope: this.scope };
     if (this.foldAngle && this.foldAngle < 180) op.angle = this.foldAngle;   // 折角（默认 180° 折平）
     return op;
   };
   /** 设置手动折叠的折角（180 = 折平） */
+  /** 「压痕」模式：画出折线后只压出折痕（折一下再展开），纸保持平面 */
+  P.setCreaseOnly = function (on) { this.creaseOnly = !!on; this.ui = { mode: 'idle' }; this.dirty = true; this.onStatus(this._hint()); return this.creaseOnly; };
   P.setFoldAngle = function (deg) { this.foldAngle = Math.max(0, Math.min(180, +deg || 180)); return this.foldAngle; };
   P._updatePreview = function (w) {
     var ui = this.ui, line = null, side = null;
@@ -603,7 +607,7 @@
     if (ui.previewKey === key) return;
     ui.previewKey = key;
     var op = this._makeOp(line, side);
-    ui.preview = { op: op, res: SF.fold(this.state(), op) };
+    ui.preview = { op: op, res: (op.type === 'crease' ? SF.crease(this.state(), op) : SF.fold(this.state(), op)) };
   };
   P._edgeSide = function (e, line) {
     var m = OG.lerp(e[0], e[1], 0.5);
@@ -616,7 +620,10 @@
     if (pv.res.error) { this.onStatus('⚠ ' + pv.res.error); return; }
     var n = this.steps.filter(function (s) { return s.user; }).length + 1;
     var kindName = this.kind === 'valley' ? '谷折' : '山折';
-    var ok = this._userOp(pv.op, kindName + '（第 ' + n + ' 次自定义）', (this.scope === 'all' ? '折叠所有层' : this.scope === 'topSheet' ? '自动选中点击处最上层所在的整叠翻片' : this.scope === 'top' ? '只折叠最上层' : '只折叠最下层') + '，折痕长 ' + OG.dist(pv.op.a, pv.op.b).toFixed(3));
+    var ifCrease = pv.op.type === 'crease';
+    var ok = this._userOp(pv.op,
+      (ifCrease ? '压痕（' + kindName + '）' : kindName) + '（第 ' + n + ' 次自定义）',
+      (ifCrease ? '先折一下再展开，只留下折痕' : (this.scope === 'all' ? '折叠所有层' : this.scope === 'topSheet' ? '自动选中点击处最上层所在的整叠翻片' : this.scope === 'top' ? '只折叠最上层' : '只折叠最下层')) + '，折痕长 ' + OG.dist(pv.op.a, pv.op.b).toFixed(3));
     if (ok) this.onStatus(this._hint());
   };
 

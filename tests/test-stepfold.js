@@ -321,5 +321,35 @@ SM.list().forEach(function (meta) {
   });
   ok(bad.length === 0, '滑翔机#2 全部 9 个折叠阶段与用户折痕图逐条一致' + (bad.length ? '（' + bad.join('，') + '）' : ''));
 })();
+
+// ---- 折了再展开（教程里常见）：留折痕、几何回平面、翻面后也能用、3D 能演出来
+(function () {
+  var st = SF.create({ width: 1, height: 1 });
+  function ap(op) { var r = SF.applyOp(st, op); if (!r.error) st = r.state; return !r.error; }
+  ap({ type: 'fold', a: [0.5, 0], b: [0, 0.5], side: [0.08, 0.08], kind: 'valley' });
+  var folded = st.facets.length;
+  ap({ type: 'unfold' });
+  ok(folded === 2 && st.facets.length === 1, '「打开上一折」几何回到整张纸（' + folded + ' → ' + st.facets.length + ' 片）');
+  ok(st.creases.length === 1, '折了再展开后折痕保留（' + st.creases.length + ' 条）');
+  // 翻面之后也能打开上一折
+  ap({ type: 'fold', a: [0.5, 0.2], b: [0.5, 1], side: [0.1, 0.6], kind: 'valley' });
+  var n2 = st.facets.length;
+  ap({ type: 'flip' });
+  ap({ type: 'unfold' });
+  ok(n2 > 1 && st.facets.length === 1, '翻面之后仍然能打开上一折（' + n2 + ' → ' + st.facets.length + ' 片）');
+  ok(st.creases.length === 2, '两次“折了再展开”留下两条折痕（' + st.creases.length + ' 条）');
+  // 3D：折一下再展开，中途应该有高度
+  var pm = SF.buildPoseModel([
+    { op: { type: 'fold', a: [0.5, 0], b: [0, 0.5], side: [0.08, 0.08], kind: 'valley', scope: 'all' } },
+    { op: { type: 'unfold' } }
+  ], { width: 1, height: 1 });
+  function span(fp) {
+    pm.setFoldPercent(fp);
+    var mn = 1e9, mx = -1e9;
+    for (var i = 2; i < pm.positions.length; i += 3) { if (pm.positions[i] < mn) mn = pm.positions[i]; if (pm.positions[i] > mx) mx = pm.positions[i]; }
+    return mx - mn;
+  }
+  ok(span(0.25) > 0.15 && Math.abs(span(1)) < 0.02, '3D 能把“折起来又展开”演出来（中途 ' + span(0.25).toFixed(2) + '，末端 ' + span(1).toFixed(2) + '）');
+})();
 console.log(passes + ' passed, ' + fails + ' failed');
 process.exit(fails ? 1 : 0);

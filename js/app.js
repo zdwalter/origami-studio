@@ -947,6 +947,13 @@
     $('stRotL').addEventListener('click', function () { if (S.stepView) S.stepView.rotate(-45); });
     $('stRotR').addEventListener('click', function () { if (S.stepView) S.stepView.rotate(45); });
     $('stReset').addEventListener('click', function () { newPaper($('stPaper').value); });
+    $('stCreaseOnly').addEventListener('click', function () {
+      var on = !(this.dataset.on === '1');
+      this.dataset.on = on ? '1' : '0';
+      this.classList.toggle('active', on);
+      if (S.stepView) S.stepView.setCreaseOnly(on);
+      toast(on ? '压痕模式：画出的折线只压出折痕（折一下即展开），纸保持平面' : '已回到普通折叠模式');
+    });
     $('stPaper').addEventListener('change', function () { newPaper(this.value); });
     $('stTo3D').addEventListener('click', stepTo3D);
     $('st3DAngle').addEventListener('input', function () {

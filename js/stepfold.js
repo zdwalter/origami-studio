@@ -137,10 +137,12 @@
   function create(opts) {
     opts = opts || {};
     var w = opts.width || 1, h = opts.height || 1;
-    return { width: w, height: h, nextId: 1, facets: [{ id: 0, poly: [[0, 0], [w, 0], [w, h], [0, h]], T: I(), layer: 0 }], creases: [] };
+    return { width: w, height: h, nextId: 1, facets: [{ id: 0, poly: [[0, 0], [w, 0], [w, h], [0, h]], T: I(), layer: 0 }], creases: [], ops: [] };
   }
   function clone(s) {
     return { width: s.width, height: s.height, nextId: s.nextId, foldCount: s.foldCount || 0,
+      ops: (s.ops || []).map(function (o) { return JSON.parse(JSON.stringify(o)); }),
+      undoneCreases: (s.undoneCreases || []).map(function (c) { return JSON.parse(JSON.stringify(c)); }),
       facets: s.facets.map(function (f) { return { id: f.id, poly: f.poly.map(function (p) { return p.slice(); }), T: cloneT(f.T), layer: f.layer }; }),
       creases: s.creases.map(function (c) {
         return { a: c.a.slice(), b: c.b.slice(), type: c.type, angle: c.angle == null ? 180 : c.angle,
@@ -188,6 +190,7 @@
     s.pendingAngle = (op.angle !== undefined && op.angle !== null) ? op.angle : 180;
     s.foldCount = (s.foldCount || 0) + 1;
     // 记住折叠前的几何，供“折一下再打开（留折痕）”和“打开”使用
+    s.ops = (state.ops || []).concat([{ type: 'fold', a: op.a, b: op.b, side: op.side, kind: op.kind, scope: op.scope }]);
     s.snaps = (state.snaps || []).concat([state.facets.map(function (f) {
       return { id: f.id, poly: f.poly.map(function (q) { return q.slice(); }), T: cloneT(f.T), layer: f.layer };
     })]);
@@ -373,11 +376,55 @@
 
   /** 打开：把最近一次折叠的几何还原（折痕保留），对应图纸里的「ひらく / 展开」 */
   function unfold(state) {
-    if (!state.snaps || !state.snaps.length) return { error: '已经没有可以打开的折了' };
-    var s = clone(state);
-    s.facets = s.snaps.pop();
-    s.creases = s.creases.map(function (c) { return { a: c.a, b: c.b, type: c.type, angle: c.angle == null ? 0 : c.angle, stage: c.stage, foldAngle: c.foldAngle }; });
-    return { state: s };
+    var ops = state.ops || [];
+    // 找到最后一次「折」（翻面/旋转不影响），把它去掉后重放，几何就回到折之前
+    var idx = -1;
+    for (var i = ops.length - 1; i >= 0; i--) if (ops[i].type === 'fold') { idx = i; break; }
+    if (idx < 0) {
+      if (state.snaps && state.snaps.length) {           // 兼容没有 ops 历史的老数据
+        var s0 = clone(state);
+        s0.facets = s0.snaps.pop();
+        s0.creases = s0.creases.map(function (c) { return { a: c.a, b: c.b, type: c.type, angle: c.angle == null ? 0 : c.angle, stage: c.stage, foldAngle: c.foldAngle }; });
+        return { state: s0 };
+      }
+      return { error: '已经没有可以打开的折了' };
+    }
+    var kept = ops.slice(0, idx).concat(ops.slice(idx + 1));
+    var full = replayOps(state.width, state.height, ops);      // 全部折痕（含被打开的这一折）
+    var geo = replayOps(state.width, state.height, kept);      // 几何：不含这一折
+    if (full.error || geo.error) return { error: (full.error || geo.error) };
+    var st = geo.state;
+    // 「折了再展开」要留下折痕：把被打开那一折产生的折痕记下来，之后一直带着
+    var keptKeys = {};
+    geo.state.creases.forEach(function (c) { keptKeys[lineKey(c)] = 1; });
+    var reopened = full.state.creases.filter(function (c) { return !keptKeys[lineKey(c)]; })
+      .map(function (c) { return { a: c.a.slice(), b: c.b.slice(), type: c.type, angle: 0, stage: c.stage, foldAngle: c.foldAngle }; });
+    var old = (state.undoneCreases || []).map(function (c) {
+      var ok = !geo.state.creases.some(function (k) { return lineKey(k) === lineKey(c); });
+      return ok ? JSON.parse(JSON.stringify(c)) : null;
+    }).filter(Boolean);
+    st.creases = st.creases.concat(reopened, old);
+    st.undoneCreases = old.concat(reopened);
+    st.ops = kept;
+    return { state: st };
+  }
+
+  function lineKey(c) {
+    var A = c.a, B = c.b;
+    var ang = ((Math.atan2(B[1] - A[1], B[0] - A[0]) * 180 / Math.PI) % 180 + 180) % 180;
+    var L = Math.sqrt((B[0] - A[0]) * (B[0] - A[0]) + (B[1] - A[1]) * (B[1] - A[1])) || 1;
+    var nx = -(B[1] - A[1]) / L, ny = (B[0] - A[0]) / L;
+    return ang.toFixed(1) + '|' + (nx * A[0] + ny * A[1]).toFixed(4);
+  }
+  /** 按 op 列表从头重放（内部用） */
+  function replayOps(width, height, ops) {
+    var st = create({ width: width, height: height });
+    for (var i = 0; i < ops.length; i++) {
+      var r = applyOp(st, ops[i]);
+      if (r.error) return { error: r.error };
+      st = r.state;
+    }
+    return { state: st };
   }
 
   /** 完全复原（展开）：几何回到整张平纸，折痕全部保留下来（对应「展开看折痕图」） */
@@ -385,7 +432,7 @@
     var s = clone(state);
     var w = s.width, h = s.height;
     s.facets = [{ id: 0, poly: [[0, 0], [w, 0], [w, h], [0, h]], T: I(), layer: 0 }];
-    s.snaps = [];
+    s.snaps = []; s.ops = [];
     s.creases = s.creases.map(function (c) { return { a: c.a, b: c.b, type: c.type, angle: 0, stage: c.stage, foldAngle: c.foldAngle }; });
     return { state: s };
   }
@@ -518,6 +565,24 @@
     var M = {};                                     // facet id → M3
     st.facets.forEach(function (f) { M[f.id] = m3ident(); });
     var undoStack = [], hinge = null, mirrorGroup = null;
+    // track：用最细分的那一步当拓扑，逐帧跟着折/展开走（教程里有「折了再展开」时需要）
+    var TK = null;
+    if (opts.track && opts.track.facets && opts.track.facets.length) {
+      TK = opts.track.facets.map(function (tf) {
+        return { poly: tf.poly, cen: OG.polyCentroid(tf.poly), layer: tf.layer, M: m3ident(), parent: tf.parent };
+      });
+    }
+    /** 按纸面位置找出此刻包含这片纸的纸片（返回它的平面变换 T） */
+    function planeTOf(state, cen) {
+      for (var i = 0; i < state.facets.length; i++) {
+        if (insidePoly(cen, state.facets[i].poly)) return state.facets[i].T;
+      }
+      return null;
+    }
+    function trackApply(fn) {
+      if (!TK) return;
+      TK.forEach(function (t) { t.M = m3mul(fn(t), t.M); });
+    }
     (steps || []).forEach(function (step, i) {
       var op = step.op || step;
       var before = st, r = applyOp(st, op);
@@ -594,7 +659,21 @@
             if (opts.mirrorStep === i) { mirrorGroup = (r.moved || []).slice(); }
       if (opts.mirrorHalf === i) { mirrorGroup = (r.moved || []).slice(); }
             (r.moved || []).forEach(function (id) { M[id] = m3mul(Rm, M[id] || m3ident()); });
-            undoStack.push({ ids: r.moved || [], R: m3rotAxis(p1, dir, -sign * ang) });
+            if (TK) {
+              var movedTk = [];
+              TK.forEach(function (t) {
+                var T = planeTOf(before, t.cen);
+                if (!T) return;
+                var pcen = apply(T, t.cen);
+                var sd = OG.orient(op.a, op.b, pcen);
+                if (Math.abs(sd) > 1e-9 && Math.sign(sd) === Math.sign(OG.orient(op.a, op.b, op.side))) {
+                  t.M = m3mul(Rm, t.M); movedTk.push(t);
+                }
+              });
+              undoStack.push({ ids: r.moved || [], p: p1, d: dir, sign: sign, ang: ang, tk: movedTk });
+            } else {
+              undoStack.push({ ids: r.moved || [], p: p1, d: dir, sign: sign, ang: ang });
+            }
           }
         }
       } else if (op.type === 'flip') {
@@ -602,13 +681,30 @@
         // 二维的 flip 是“沿竖直中轴翻面”，三维里等于绕竖直轴(y)转 180°
         var Rf = m3rotAxis([c[0], c[1], 0], [0, 1, 0], flipDeg * (ramp && ramp[i] !== undefined ? ramp[i] : 1));
         after.facets.forEach(function (f) { M[f.id] = m3mul(Rf, M[f.id] || m3ident()); });
+        if (TK) TK.forEach(function (t) { t.M = m3mul(Rf, t.M); });
       } else if (op.type === 'rotate') {
         var b2 = bounds(before), c2 = b2.center;
         var Rr = m3rotAxis([c2[0], c2[1], 0], [0, 0, 1], (op.deg || 0) * (ramp && ramp[i] !== undefined ? ramp[i] : 1));
         after.facets.forEach(function (f) { M[f.id] = m3mul(Rr, M[f.id] || m3ident()); });
+        if (TK) TK.forEach(function (t) { t.M = m3mul(Rr, t.M); });
       } else if (op.type === 'unfold') {
+        // 打开上一折：把那一折反向转回去。带 ramp 时按进度反着做，所以 3D 里能看到“折起来又展开”。
         var u = undoStack.pop();
-        if (u) u.ids.forEach(function (id) { if (M[id]) M[id] = m3mul(u.R, M[id]); });
+        if (u) {
+          var ru = ramp ? (ramp[i] === undefined ? 1 : ramp[i]) : 1;
+          var Ru = m3rotAxis(u.p, u.d, -u.sign * u.ang * ru);
+          u.ids.forEach(function (id) { if (M[id]) M[id] = m3mul(Ru, M[id]); });
+          if (u.tk) u.tk.forEach(function (t) { t.M = m3mul(Ru, t.M); });
+        }
+      } else if (op.type === 'unfoldAll') {
+        // 展开复原：所有折起来的都按进度打开（后折的先开）
+        var ra = ramp ? (ramp[i] === undefined ? 1 : ramp[i]) : 1;
+        while (undoStack.length) {
+          var ua = undoStack.pop();
+          var Ra = m3rotAxis(ua.p, ua.d, -ua.sign * ua.ang * ra);
+          ua.ids.forEach(function (id) { if (M[id]) M[id] = m3mul(Ra, M[id]); });
+          if (ua.tk) ua.tk.forEach(function (t) { t.M = m3mul(Ra, t.M); });
+        }
       }
       st = after;
     });
@@ -669,6 +765,18 @@
       mirrorGroup.forEach(function (id) { if (M[id]) M[id] = m3mul(Mrefl, M[id]); });
     }
     var polys = [], mn = [1e9, 1e9, 1e9], mx = [-1e9, -1e9, -1e9];
+    // 教程里有「折了再展开」时，最终状态会比中途“少片”。这时用最细分那一步的纸片当拓扑，
+    // 再按 parent 链找回它此刻的三维变换（展开后回落到祖先/整体，纸就是平的）。
+    if (TK) {
+      var pmn = [1e9, 1e9, 1e9], pmx = [-1e9, -1e9, -1e9];
+      TK.forEach(function (t) {
+        var pts = t.poly.map(function (q) { return m3apply(t.M, [q[0], q[1], 0]); });
+        var front = OG3.norm(m3apply(t.M, [0, 0, 1]).map(function (v, k) { return v - t.M.t[k]; }));
+        polys.push({ pts: pts, front: front, layer: t.layer, area: Math.abs(OG.polyArea(t.poly)) });
+        pts.forEach(function (q) { for (var k = 0; k < 3; k++) { if (q[k] < pmn[k]) pmn[k] = q[k]; if (q[k] > pmx[k]) pmx[k] = q[k]; } });
+      });
+      return { polys: polys, min: pmn, max: pmx, state: st };
+    }
     st.facets.forEach(function (f) {
       var Mf = M[f.id] || m3ident();
       var pts = f.poly.map(function (q) { return m3apply(Mf, [q[0], q[1], 0]); });
@@ -698,7 +806,7 @@
     var timed = [];
     steps.forEach(function (st, i) {
       var t = st.op.type;
-      if (t === 'fold' || t === 'flip' || (t === 'rotate' && st.op.deg)) timed.push(i);
+      if (t === 'fold' || t === 'flip' || t === 'unfold' || t === 'unfoldAll' || (t === 'rotate' && st.op.deg)) timed.push(i);
     });
     var nT = Math.max(1, timed.length);
     var slot = {}; timed.forEach(function (i, k) { slot[i] = k; });
@@ -712,7 +820,7 @@
       return r;
     }
 
-    // 拓扑：最终状态的纸片（每片独立顶点）
+    // 拓扑：取纸片最多的那一步（教程里可能有「折了再展开」，最终状态反而更少片）
     var flat = create({ width: width, height: height });
     var prefixStates = [flat];
     steps.forEach(function (st) {
@@ -729,10 +837,24 @@
         return { layer: parent.layer, side: det(parent.T) < 0 ? -1 : 1 };
       });
     });
+    // 只有出现「展开」步骤时，最终状态才比中途“少片”，这时才需要用最细分那一步当拓扑
+    var hasUnfold = steps.some(function (st) {
+      var t = st.op && st.op.type; return t === 'unfold' || t === 'unfoldAll';
+    });
+    var topoState = prefixStates[prefixStates.length - 1], topoIdx = prefixStates.length - 1;
+    if (hasUnfold) {
+      prefixStates.forEach(function (ps, i) {
+        if (ps.facets.length > topoState.facets.length) { topoState = ps; topoIdx = i; }
+      });
+    }
+    // parent 链（跨状态用：facet id → parent id）
+    var parentMap = {};
+    prefixStates.forEach(function (ps) { ps.facets.forEach(function (f) { if (f.parent !== undefined) parentMap[f.id] = f.parent; }); });
     // 纸面正面的绕向：三维里 Y = -(y - cy)，纸面坐标里 signedArea < 0 的多边形在三维里是逆时针（正面朝 +z）
     function sArea(poly) { var a = 0; for (var i = 0; i < poly.length; i++) { var q = poly[i], w = poly[(i + 1) % poly.length]; a += q[0] * w[1] - w[0] * q[1]; } return a / 2; }
     var nodes2d = [], tris = [], lineIdx = [], order = [];
-    flat.facets.forEach(function (f, fi) {
+    var topoFacets = topoState.facets;
+    topoFacets.forEach(function (f, fi) {
       var idx = f.poly.map(function (_, k) { return k; });
       if (sArea(f.poly) > 0) idx.reverse();
       order.push(idx);
@@ -752,18 +874,21 @@
     // 三维坐标和求解器一致：X = x - cx, Y = -(y - cy), Z = z
     var cx = width / 2, cy = height / 2;
 
+    var trackInfo = hasUnfold && topoIdx < prefixStates.length - 1
+      ? { facets: topoFacets.map(function (f) { return { id: f.id, poly: f.poly, layer: f.layer, parent: f.parent }; }), parentMap: parentMap }
+      : null;
     function applyPose(fp) {
       var ramps = rampAt(fp);
-      var pose = threeDPose(steps, { width: width, height: height, ramp: ramps });
+      var pose = threeDPose(steps, { width: width, height: height, ramp: ramps, track: trackInfo });
       var completed = 0;
       for (var si = 0; si < steps.length; si++) {
         if (ramps[si] < 1 - 1e-9) break;
         completed = si + 1;
       }
-      var layers = currentLayers[completed];
+      var layers = panelsFor(completed);
       var maxRank = Math.max(1, prefixStates[completed].facets.length - 1);
       var k = 0;
-      for (var fi = 0; fi < flat.facets.length; fi++) {
+      for (var fi = 0; fi < topoFacets.length; fi++) {
         var P = pose.polys[fi], idx = order[fi];
         // Direction toward higher layers in this material facet's current frame.
         // This rotates with the flap; observing the back reverses the depth priority.
@@ -777,6 +902,17 @@
           k++;
         }
       }
+    }
+    // 每片「拓扑纸片」在某个中间状态里对应哪片纸（按纸面位置找），用于取层号与正反面
+    var topoCens = topoFacets.map(function (f) { return OG.polyCentroid(f.poly); });
+    var panelCache = prefixStates.map(function (ps) {
+      return topoCens.map(function (c) {
+        var f = ps.facets.filter(function (g) { return insidePoly(c, g.poly); })[0] || ps.facets[ps.facets.length - 1];
+        return { layer: f.layer, side: det(f.T) < 0 ? -1 : 1 };
+      });
+    });
+    function panelsFor(current) {
+      return panelCache[Math.max(0, Math.min(panelCache.length - 1, current))];
     }
     applyPose(1);
 
