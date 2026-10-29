@@ -95,6 +95,22 @@ var fails = 0; function ok(c, m) { console.log((c ? 'ok   ' : 'FAIL ') + m); if 
   var name = await page.evaluate(function () { return document.getElementById('modelName').textContent; });
   ok(name.indexOf('三浦') >= 0, 'current doc restored after reload: ' + name);
 
+  // 8. paper selection: square / A4 in step mode
+  await page.evaluate(function () { document.querySelector('.mode-tab[data-mode="step"]').click(); });
+  await sleep(500);
+  var papers = await page.evaluate(function () {
+    var el = document.getElementById('stPaper');
+    var v = window.OrigamiStudio.stepView;
+    el.value = 'a4'; el.dispatchEvent(new Event('change'));
+    var s = v.state(), a4 = [Math.round(s.width * 1000) / 1000, s.height];
+    el.value = 'square'; el.dispatchEvent(new Event('change'));
+    s = v.state();
+    return { a4: a4, square: [s.width, s.height], opts: Array.from(el.options).map(function (o) { return o.value; }) };
+  });
+  ok(papers.opts.join(',') === 'square,a4', '纸张选择有 正方形 / A4 两种');
+  ok(Math.abs(papers.a4[0] - Math.SQRT1_2) < 2e-3 && Math.abs(papers.a4[1] - 1) < 1e-9, '选 A4 后纸张为 1:√2（' + papers.a4.join(' × ') + '）');
+  ok(papers.square[0] === 1 && papers.square[1] === 1, '选正方形后纸张为 1:1');
+
   ok(!logs.length, 'no console errors ' + logs.join(' | '));
   await browser.close();
   console.log(fails ? fails + ' FAILED' : 'ALL OK');

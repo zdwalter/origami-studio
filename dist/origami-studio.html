@@ -442,7 +442,13 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
             <button class="tbtn" id="stFlip" title="翻面"><svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 0 1 14-5l2-2v6h-6l2-2a5 5 0 0 0-9 3 M20 12a8 8 0 0 1-14 5l-2 2v-6h6l-2 2a5 5 0 0 0 9-3"/></svg><span>翻面</span></button>
             <button class="tbtn" id="stRotL" title="逆时针旋转 45°"><svg viewBox="0 0 24 24"><path d="M3 4v6h6 M3.5 10A9 9 0 1 1 6 18"/></svg></button>
             <button class="tbtn" id="stRotR" title="顺时针旋转 45°"><svg viewBox="0 0 24 24"><path d="M21 4v6h-6 M20.5 10A9 9 0 1 0 18 18"/></svg></button>
-            <button class="tbtn" id="stReset" title="重新开始：一张新纸"><svg viewBox="0 0 24 24"><path d="M5 3h14v18H5z"/></svg><span>新纸</span></button>
+            <label class="btn sm" id="stPaperWrap" title="选择开始的纸：正方形，或 A4 比例（1:√2）长方形">纸张
+              <select id="stPaper" style="margin-left:4px;background:transparent;border:0;color:inherit;font:inherit">
+                <option value="square">正方形 1:1</option>
+                <option value="a4">A4 1:√2</option>
+              </select>
+            </label>
+            <button class="tbtn" id="stReset" title="按所选纸张重新开始"><svg viewBox="0 0 24 24"><path d="M5 3h14v18H5z"/></svg><span>新纸</span></button>
           </div>
           <div class="tsep"></div>
           <label class="btn sm" id="stAngleWrap" title="手动折叠使用的折角：180° 是折平，小于 180° 是折一半（成品可用「3D 展开展示」查看）">折角
@@ -574,6 +580,7 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
           <p><b>分步折叠</b>：多条折痕可以分先后（例如三折页先折一道再折另一道），拖动滑块时会按顺序逐道折完，纸片不会同时往同一处扫过去。</p>
           <p><b>折痕设计</b>：在 2D 折痕图编辑器中绘制山折（红）、谷折（蓝）、平面线、自由铰链、剪切线，右侧实时 3D 预览；编辑器会检查每个内部顶点是否满足平折条件。</p>
           <p><b>分步折叠</b>：像折真纸一样一步步折：画折线、点到点、边到边，可翻面/旋转，跟随教程完成纸飞机、纸船等作品，并可把折痕发送到 3D 仿真。</p>
+          <p><b>选纸</b>：分步折叠工具栏「纸张」可选<b>正方形 1:1</b> 或 <b>A4（1:√2）</b>，换纸会按所选尺寸新建一张纸；载入教程时会自动切到该教程用的纸（滑翔机是 A4 比例）。折痕设计里也有「新建正方形纸 / 新建 A4 比例纸 / 自定义比例」。</p>
           <p><b>3D 展开展示</b>：折完的作品（如纸飞机、滑翔机）点工具栏「3D 展开展示」，会把折好的成品按三维姿态展开（机翼张开、机身撑起），可以拖动旋转看各个角度；再点一次回到平面。</p>
           <p><b>分步成品进 3D</b>：在分步折叠里点「折痕 → 3D 仿真」，3D 模型是<b>直接从折叠树生成</b>的（不是从折痕图反推），所以多层重叠也不会算歪；拖动「折叠程度」就能看着纸一道一道折起来，展开 0% 是整张纸、100% 是成品。这种模型是"姿态回放"，不走动力学（自碰撞、拖拽对它不生效）。</p>
           <p><b>折角进 3D</b>：折痕记录的 `foldAngle` 会直接作为 3D 仿真的目标折角——比如机翼那两道记的是 90°，3D 里就折到 90°，而不是一律折平到 180°。只是"压了痕再展开"的折痕（angle=0）仍保持 0，不会因为记录过折角就折起来。</p>
@@ -7319,6 +7326,37 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
   }
 
   // ------------------------------------------------------------------ step folding
+  // 可选纸张：正方形 1:1、A4（1:√2）。宽高比由模型或用户选择决定
+  var PAPER = { square: { w: 1, h: 1, name: '正方形 1:1' }, a4: { w: Math.SQRT1_2, h: 1, name: 'A4 1:√2' } };
+  function paperKind() {
+    var p = lsGet(LS.prefs, {});
+    return PAPER[p.paper] ? p.paper : 'square';
+  }
+  function setPaperKind(kind) {
+    if (!PAPER[kind]) kind = 'square';
+    var p = lsGet(LS.prefs, {}); p.paper = kind; lsSet(LS.prefs, p);
+    if ($('stPaper')) $('stPaper').value = kind;
+    return PAPER[kind];
+  }
+  /** 按纸张新建一张纸（清空教程选择与步骤） */
+  function newPaper(kind) {
+    if (!S.stepView) return;
+    var spec = setPaperKind(kind || paperKind());
+    $('stepModelSel').value = '';
+    $('stepModelDesc').textContent = '';
+    S.stepView.reset(spec.w, spec.h);
+    renderStepList();
+    toast('新纸：' + spec.name + '（' + spec.w.toFixed(3) + ' × ' + spec.h.toFixed(2) + '）');
+  }
+  /** 教程载入后，让纸张选择器和模型实际纸张一致 */
+  function syncPaperSelect(model) {
+    if (!model || !$('stPaper')) return;
+    var ratio = model.width / model.height;
+    var kind = Math.abs(ratio - Math.SQRT1_2) < 1e-3 ? 'a4' : 'square';
+    var p = lsGet(LS.prefs, {}); p.paper = kind; lsSet(LS.prefs, p);
+    $('stPaper').value = kind;
+  }
+
   function ensureStepView() {
     if (S.stepView) return S.stepView;
     if (typeof StepView === 'undefined') { $('stStatus').textContent = '分步折叠模块未加载'; return null; }
@@ -7341,6 +7379,9 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
       onStatus: function (t) { $('stStatus').textContent = t; }
     });
     S.stepView.setPaperColors($('stFront').value, $('stBack').value);
+    var pk = paperKind();
+    $('stPaper').value = pk;
+    S.stepView.reset(PAPER[pk].w, PAPER[pk].h);
     var sel = $('stepModelSel');
     sel.innerHTML = '<option value="">— 自由折叠（空白纸） —</option>' + StepModels.list().map(function (m) {
       return '<option value="' + m.id + '">' + esc(m.name) + '（' + '★'.repeat(m.difficulty || 1) + '）</option>';
@@ -7664,7 +7705,8 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
     $('stFlip').addEventListener('click', function () { if (S.stepView) S.stepView.flip(); });
     $('stRotL').addEventListener('click', function () { if (S.stepView) S.stepView.rotate(-45); });
     $('stRotR').addEventListener('click', function () { if (S.stepView) S.stepView.rotate(45); });
-    $('stReset').addEventListener('click', function () { if (S.stepView) { $('stepModelSel').value = ''; S.stepView.reset(1, 1); $('stepModelDesc').textContent = ''; renderStepList(); } });
+    $('stReset').addEventListener('click', function () { newPaper($('stPaper').value); });
+    $('stPaper').addEventListener('change', function () { newPaper(this.value); });
     $('stTo3D').addEventListener('click', stepTo3D);
     $('st3DAngle').addEventListener('input', function () {
       if (!S.stepView) return;
@@ -7702,9 +7744,10 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
     $('stepModelSel').addEventListener('change', function () {
       var v = S.stepView; if (!v) return;
       stopAuto();
-      if (!this.value) { v.reset(1, 1); $('stepModelDesc').textContent = ''; renderStepList(); return; }
+      if (!this.value) { var sp = PAPER[paperKind()]; v.reset(sp.w, sp.h); $('stepModelDesc').textContent = ''; renderStepList(); return; }
       var m = StepModels.get(this.value);
       v.loadModel(m);
+      syncPaperSelect(m);
       if (m.frontColor) { $('stFront').value = m.frontColor; v.setPaperColors(m.frontColor, $('stBack').value); }
       $('stepModelDesc').textContent = (StepModels.list().filter(function (x) { return x.id === m.id; })[0] || {}).description || '';
       renderStepList();

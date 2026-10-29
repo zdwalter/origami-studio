@@ -552,6 +552,37 @@
   }
 
   // ------------------------------------------------------------------ step folding
+  // 可选纸张：正方形 1:1、A4（1:√2）。宽高比由模型或用户选择决定
+  var PAPER = { square: { w: 1, h: 1, name: '正方形 1:1' }, a4: { w: Math.SQRT1_2, h: 1, name: 'A4 1:√2' } };
+  function paperKind() {
+    var p = lsGet(LS.prefs, {});
+    return PAPER[p.paper] ? p.paper : 'square';
+  }
+  function setPaperKind(kind) {
+    if (!PAPER[kind]) kind = 'square';
+    var p = lsGet(LS.prefs, {}); p.paper = kind; lsSet(LS.prefs, p);
+    if ($('stPaper')) $('stPaper').value = kind;
+    return PAPER[kind];
+  }
+  /** 按纸张新建一张纸（清空教程选择与步骤） */
+  function newPaper(kind) {
+    if (!S.stepView) return;
+    var spec = setPaperKind(kind || paperKind());
+    $('stepModelSel').value = '';
+    $('stepModelDesc').textContent = '';
+    S.stepView.reset(spec.w, spec.h);
+    renderStepList();
+    toast('新纸：' + spec.name + '（' + spec.w.toFixed(3) + ' × ' + spec.h.toFixed(2) + '）');
+  }
+  /** 教程载入后，让纸张选择器和模型实际纸张一致 */
+  function syncPaperSelect(model) {
+    if (!model || !$('stPaper')) return;
+    var ratio = model.width / model.height;
+    var kind = Math.abs(ratio - Math.SQRT1_2) < 1e-3 ? 'a4' : 'square';
+    var p = lsGet(LS.prefs, {}); p.paper = kind; lsSet(LS.prefs, p);
+    $('stPaper').value = kind;
+  }
+
   function ensureStepView() {
     if (S.stepView) return S.stepView;
     if (typeof StepView === 'undefined') { $('stStatus').textContent = '分步折叠模块未加载'; return null; }
@@ -574,6 +605,9 @@
       onStatus: function (t) { $('stStatus').textContent = t; }
     });
     S.stepView.setPaperColors($('stFront').value, $('stBack').value);
+    var pk = paperKind();
+    $('stPaper').value = pk;
+    S.stepView.reset(PAPER[pk].w, PAPER[pk].h);
     var sel = $('stepModelSel');
     sel.innerHTML = '<option value="">— 自由折叠（空白纸） —</option>' + StepModels.list().map(function (m) {
       return '<option value="' + m.id + '">' + esc(m.name) + '（' + '★'.repeat(m.difficulty || 1) + '）</option>';
@@ -897,7 +931,8 @@
     $('stFlip').addEventListener('click', function () { if (S.stepView) S.stepView.flip(); });
     $('stRotL').addEventListener('click', function () { if (S.stepView) S.stepView.rotate(-45); });
     $('stRotR').addEventListener('click', function () { if (S.stepView) S.stepView.rotate(45); });
-    $('stReset').addEventListener('click', function () { if (S.stepView) { $('stepModelSel').value = ''; S.stepView.reset(1, 1); $('stepModelDesc').textContent = ''; renderStepList(); } });
+    $('stReset').addEventListener('click', function () { newPaper($('stPaper').value); });
+    $('stPaper').addEventListener('change', function () { newPaper(this.value); });
     $('stTo3D').addEventListener('click', stepTo3D);
     $('st3DAngle').addEventListener('input', function () {
       if (!S.stepView) return;
@@ -935,9 +970,10 @@
     $('stepModelSel').addEventListener('change', function () {
       var v = S.stepView; if (!v) return;
       stopAuto();
-      if (!this.value) { v.reset(1, 1); $('stepModelDesc').textContent = ''; renderStepList(); return; }
+      if (!this.value) { var sp = PAPER[paperKind()]; v.reset(sp.w, sp.h); $('stepModelDesc').textContent = ''; renderStepList(); return; }
       var m = StepModels.get(this.value);
       v.loadModel(m);
+      syncPaperSelect(m);
       if (m.frontColor) { $('stFront').value = m.frontColor; v.setPaperColors(m.frontColor, $('stBack').value); }
       $('stepModelDesc').textContent = (StepModels.list().filter(function (x) { return x.id === m.id; })[0] || {}).description || '';
       renderStepList();
