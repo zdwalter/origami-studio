@@ -135,6 +135,7 @@
     var out = { positions: solver.positions, uvs: uvs, indices: idx, lineIdx: lineIdx };
     if (mesh.bias) out.bias = mesh.bias;      // 折叠树模型：叠层深度偏置（几何不偏移）
     if (mesh.ambient !== undefined) out.ambient = mesh.ambient;   // 折叠树模型：颜色不被光照改变
+    if (mesh.colors) out.colors = mesh.colors;                   // 折叠树模型：逐片固定纸色
     return out;
   }
 
@@ -149,6 +150,7 @@
     if (!mesh.tris.length) { toast('折痕图没有可用的面', true); return; }
     S.mesh = mesh;
     S.poseModel = null;                          // 换回普通文档时清掉折叠树模型
+    if (S.renderer) S.renderer.fixedColors = false;
     S.solver = new OrigamiSolver(mesh, S.sim);
     // 多层紧贴的图案（菱形筒、同心圆褶）：开了自碰撞会把几十层纸顶开、把形状撑变形，这里临时关掉
     var effCollision = doc.stackedLayers ? false : S.collisionPref;
@@ -559,7 +561,9 @@
     doc.name = doc.name || name;
     // 直接从折叠树生成 3D（不走折痕图重建：多层折痕图对求解器是矛盾的，会算歪）
     var pm;
-    try { pm = StepFold.buildPoseModel(steps, { width: doc.width, height: doc.height }); }
+    var colFront = (v.front || S.front || [232, 85, 61]).map(function (c) { return c / 255; });
+    var colBack = (v.back || S.back || [246, 241, 231]).map(function (c) { return c / 255; });
+    try { pm = StepFold.buildPoseModel(steps, { width: doc.width, height: doc.height, colors: { front: colFront, back: colBack } }); }
     catch (e) { console.error(e); }
     switchMode('sim');
     if (!pm) { loadDoc(doc, { foldPercent: 0.9 }); return; }
@@ -571,6 +575,7 @@
     S.fp = 0; S.settled = 0; S.fitPending = true; S.sleepT = 0;
     if (S.renderer) {
       S.renderer.setMesh(rendererMesh(pm.mesh, pm));
+      S.renderer.fixedColors = true;          // 每片纸颜色按平面视图里的正/反面固定，折叠过程中不变
       S.renderer.fit(false);
     }
     updateInfo(); updateCPPanel(); renderParams();

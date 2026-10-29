@@ -548,35 +548,53 @@
           var p1 = m3apply(M[parentFacet.id], [pa[0], pa[1], 0]), p2 = m3apply(M[parentFacet.id], [pb[0], pb[1], 0]);
           var dir = OG3.sub(p2, p1);
           if (Math.sqrt(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]) > 1e-9) {
-            // 旋转方向要看“纸的正面朝哪边”：谷折让翻片正面向着被折过去的那面合拢，
-            // 山折相反。用一个小角度试探法向的走向来决定符号（翻过面后仍然正确）。
+            // 旋转方向：谷折要把翻片折到“基准面正面”那一侧的上方，山折折到下方。
+            // 判据：分别试 ±角度，看翻片质心落在基准平面的哪一侧。
             var sign = 1;
             try {
-              var nFlap = (function (fid) {
-                var Mf = M[fid] || m3ident();
-                return OG3.norm([Mf.R[2], Mf.R[5], Mf.R[8]]);      // 纸面正面法向在三维中的方向
-              })(mv);
-              var nBase = null;
-              for (var q2i = 0; q2i < before.facets.length; q2i++) {
-                var bf = before.facets[q2i];
-                if ((r.moved || []).indexOf(bf.id) >= 0) continue;  // 找一片不动的（被折过去的基准面）
-                var Mb = M[bf.id];
-                if (Mb) { nBase = OG3.norm([Mb.R[2], Mb.R[5], Mb.R[8]]); break; }
-              }
-              if (nBase) {
-                var eps = 3, u2 = OG3.norm(dir);
-                var Rt = m3rotAxis([0, 0, 0], u2, eps);
-                var nTry = [Rt.R[0] * nFlap[0] + Rt.R[1] * nFlap[1] + Rt.R[2] * nFlap[2],
-                  Rt.R[3] * nFlap[0] + Rt.R[4] * nFlap[1] + Rt.R[5] * nFlap[2],
-                  Rt.R[6] * nFlap[0] + Rt.R[7] * nFlap[1] + Rt.R[8] * nFlap[2]];
-                var dDot = OG3.dot(nTry, nBase) - OG3.dot(nFlap, nBase);
-                // 谷折：正面法向要远离基准面正面；山折：靠近
-                if (op.kind === 'mountain' ? dDot < 0 : dDot > 0) sign = -1;
-              } else {
-                sign = op.kind === 'mountain' ? -1 : 1;
+              var Mf = M[mv] || m3ident();
+              var aft2 = null;
+              for (var ai3 = 0; ai3 < after.facets.length; ai3++) if (after.facets[ai3].id === mv) { aft2 = after.facets[ai3]; break; }
+              var polyQ2 = aft2 ? aft2.poly : null;
+              if (polyQ2) {
+                var cpq = [0, 0];
+                polyQ2.forEach(function (q) { cpq[0] += q[0] / polyQ2.length; cpq[1] += q[1] / polyQ2.length; });
+                // 基准面：离翻片最近的静止纸片
+                var best = null, bestD = Infinity, bc2 = null;
+                for (var bi2 = 0; bi2 < before.facets.length; bi2++) {
+                  var bf2 = before.facets[bi2];
+                  if ((r.moved || []).indexOf(bf2.id) >= 0) continue;
+                  var Mc = M[bf2.id]; if (!Mc) continue;
+                  var cc = [0, 0, 0];
+                  bf2.poly.forEach(function (q) { var pt = m3apply(Mc, [q[0], q[1], 0]); for (var i2 = 0; i2 < 3; i2++) cc[i2] += pt[i2] / bf2.poly.length; });
+                  var c3c = m3apply(Mf, [cpq[0], cpq[1], 0]);
+                  var dd = Math.sqrt(Math.pow(cc[0] - c3c[0], 2) + Math.pow(cc[1] - c3c[1], 2) + Math.pow(cc[2] - c3c[2], 2));
+                  if (dd < bestD) { bestD = dd; best = Mc; bc2 = cc; }
+                }
+                if (best) {
+                  var nBase = OG3.norm([best.R[2], best.R[5], best.R[8]]);
+                  var c0 = m3apply(Mf, [cpq[0], cpq[1], 0]);
+                  var dU = OG3.norm(dir);
+                  // 质心绕轴旋转 ±ang 后的位置
+                  function rotC(sgn2) {
+                    var ca2 = Math.cos(sgn2 * ang * Math.PI / 180), sa2 = Math.sin(sgn2 * ang * Math.PI / 180), vv2 = 1 - ca2;
+                    var w0 = OG3.sub(c0, p1);
+                    var pr2 = w0[0] * dU[0] + w0[1] * dU[1] + w0[2] * dU[2];
+                    var rv = [w0[0] - dU[0] * pr2, w0[1] - dU[1] * pr2, w0[2] - dU[2] * pr2];
+                    // 平行分量保持不变，垂直分量绕轴旋转
+                    var para = [dU[0] * pr2, dU[1] * pr2, dU[2] * pr2];
+                    var kk = OG3.cross(dU, rv);
+                    var rv2 = [rv[0] * ca2 + kk[0] * sa2, rv[1] * ca2 + kk[1] * sa2, rv[2] * ca2 + kk[2] * sa2];
+                    return [p1[0] + para[0] + rv2[0], p1[1] + para[1] + rv2[1], p1[2] + para[2] + rv2[2]];
+                  }
+                  function sideOf(pt) { return (pt[0] - p1[0]) * nBase[0] + (pt[1] - p1[1]) * nBase[1] + (pt[2] - p1[2]) * nBase[2]; }
+                  var sPlus = sideOf(rotC(1)), sMinus = sideOf(rotC(-1));
+                  var want = (op.kind === 'mountain') ? -1 : 1;      // 谷折：质心在基准面正面上方
+                  sign = (Math.abs(sPlus - want) <= Math.abs(sMinus - want)) ? 1 : -1;
+                  if (want > 0 ? sPlus < sMinus : sPlus > sMinus) sign = -1; else sign = 1;
+                }
               }
             } catch (e) { sign = op.kind === 'mountain' ? -1 : 1; }
-            if (op.openSign === -1) sign = -sign;      // 模型可以逐折指定打开方向
             var Rm = m3rotAxis(p1, dir, sign * ang);
             if ((opts.open && opts.open.step === i) || (opts.openByLine && opts.openByLine.step === i)) {
               hinge = { p: p1, d: dir, ids: (r.moved || []).slice() };
@@ -759,6 +777,20 @@
     }
     applyPose(1);
 
+    // 每片纸的固定颜色：按最终平面状态里看到的是正面还是反面来定（和平面视图一致，折叠过程中不变）
+    var colors = null;
+    if (opts.colors && opts.colors.front && opts.colors.back) {
+      colors = new Float32Array(n * 3);
+      var base2 = 0;
+      flatState.facets.forEach(function (f) {
+        var d2 = f.T.m[0] * f.T.m[3] - f.T.m[1] * f.T.m[2];
+        var col = d2 > 0 ? opts.colors.front : opts.colors.back;
+        for (var i3 = 0; i3 < f.poly.length && base2 + i3 < n; i3++) {
+          colors[(base2 + i3) * 3] = col[0]; colors[(base2 + i3) * 3 + 1] = col[1]; colors[(base2 + i3) * 3 + 2] = col[2];
+        }
+        base2 += f.poly.length;
+      });
+    }
     // 深度偏置：叠在一起的层几何完全贴合，靠顶点深度偏置决定谁盖住谁（层号越大越靠前）
     var bias = new Float32Array(n);
     (function () {
@@ -776,7 +808,8 @@
     })();
     var mesh = {
       width: width, height: height, nodes2d: nodes2d, tris: tris, edges: [], hinges: [], warnings: [], bias: bias,
-      ambient: 0.88,                                    // 折叠过程里颜色保持纸的本来颜色，不被光照压暗
+      colors: colors || undefined, fixedColors: !!colors,
+      ambient: 1.0,                                     // 纯纸色、不带光影（折叠树模型）
 
       lineIdx: lineIdxData.map(function (l) { return [l[0], l[1], l[2]]; })
     };
@@ -792,7 +825,10 @@
       strainMax: function () { return 0; },
       maxSpeed: function () { return 0; },
       orient: function (alpha) {
-        // 让模型的整体朝向转正（面积加权平均法向朝向观察者），避免折完后侧对着光、一片黑
+        // 不要自动转正：折叠姿态本来就是“纸面正面朝 +Z”，和平面视图一致；
+        // 转正会让整个模型翻个面，正反色看起来就反了。
+        return this;
+        /* eslint-disable no-unreachable */
         alpha = alpha === undefined ? 0.12 : alpha;
         var i, k, mn = [1e9, 1e9, 1e9], mx = [-1e9, -1e9, -1e9];
         for (i = 0; i < n; i++) for (k = 0; k < 3; k++) { var t0 = positions[i * 3 + k]; if (t0 < mn[k]) mn[k] = t0; if (t0 > mx[k]) mx[k] = t0; }
