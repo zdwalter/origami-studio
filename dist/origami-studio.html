@@ -448,6 +448,7 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
               <option value="120">120°</option><option value="90">90°</option><option value="60">60°</option><option value="45">45°</option>
             </select>
           </label>
+          <button class="btn sm" id="stStageNums" title="在折痕上显示/隐藏「第几步折的」编号" data-on="1">步骤号 ✓</button>
           <button class="btn sm" id="stUnfoldAll" title="把纸重新打开铺平，折痕全部留下（可撤销）">展开复原</button>
           <button class="btn sm" id="stUnfoldOne" title="只打开最近折的那一下，折痕保留">打开上一折</button>
           <button class="btn sm" id="st3D" title="把折好的成品按折角展开成三维姿态（可拖动旋转）">3D 展开展示</button>
@@ -565,6 +566,7 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
           <p><b>折痕设计</b>：在 2D 折痕图编辑器中绘制山折（红）、谷折（蓝）、平面线、自由铰链、剪切线，右侧实时 3D 预览；编辑器会检查每个内部顶点是否满足平折条件。</p>
           <p><b>分步折叠</b>：像折真纸一样一步步折：画折线、点到点、边到边，可翻面/旋转，跟随教程完成纸飞机、纸船等作品，并可把折痕发送到 3D 仿真。</p>
           <p><b>3D 展开展示</b>：折完的作品（如纸飞机、滑翔机）点工具栏「3D 展开展示」，会把折好的成品按三维姿态展开（机翼张开、机身撑起），可以拖动旋转看各个角度；再点一次回到平面。</p>
+          <p><b>折痕的顺序与折角</b>：每条折痕都记着「第几步折出来的」（stage）和「当时折了多少度」（foldAngle）。平面视图默认在折痕上标步骤号（工具栏「步骤号」可关）；把折痕发到 3D 仿真后，3D 会<b>按步骤顺序一道一道折</b>，而不是所有折痕同时折。</p>
           <p><b>展开复原 / 打开上一折</b>：折过之后点「展开复原」，纸会重新铺平，但折痕全部留在纸上（可以作为折痕图导出、发送到 3D 仿真）；「打开上一折」只把最近折的那一下打开，折痕同样保留。两个操作都记成一步，可以撤销。</p>
           <p><b>折角</b>：工具栏的「折角」可以选择这一折折多少度——180° 是常规的折平，90° 是折到与纸面垂直，60° 是只折 60°。折角会记在这一步里，成品用「3D 展开展示」按这个角度展开；平面视图仍按折平显示（层序和折痕计算需要平面状态）。</p>
         </section>
@@ -939,7 +941,7 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
       if (type !== 'B' && sameBoundarySide(cl[0], cl[1], w, h, tol)) type = 'B';
       if (type === 'B' && !sameBoundarySide(cl[0], cl[1], w, h, tol)) type = 'F'; // interior "boundary" = flat line
       var ang = (l.angle === undefined || l.angle === null || !isFinite(+l.angle)) ? defaultAngle(type) : Math.abs(+l.angle);
-      segs.push({ a: cl[0], b: cl[1], type: type, angle: Math.min(180, ang), stage: Math.max(0, Math.round(+l.stage || 0)), curve: l.curve || null });
+      segs.push({ a: cl[0], b: cl[1], type: type, angle: Math.min(180, ang), stage: Math.max(0, Math.round(+l.stage || 0)), foldAngle: (l.foldAngle === undefined ? null : +l.foldAngle), curve: l.curve || null });
     });
     // collect split parameters
     var n = segs.length, params = segs.map(function () { return [0, 1]; });
@@ -1002,7 +1004,7 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
           var key2 = prev < id ? prev + '_' + id : id + '_' + prev;
           var old = edgeMap[key2];
           // later wins, except a boundary edge can never be replaced by a crease
-          if (!old || old.type !== 'B' || S.type === 'C') edgeMap[key2] = { v: [prev, id], type: S.type, angle: S.angle, stage: S.stage || 0, curve: S.curve || null, order: order++ };
+          if (!old || old.type !== 'B' || S.type === 'C') edgeMap[key2] = { v: [prev, id], type: S.type, angle: S.angle, stage: S.stage || 0, foldAngle: S.foldAngle, curve: S.curve || null, order: order++ };
         }
         prev = id;
       }
@@ -1013,7 +1015,7 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
       var a = verts[e.v[0]], b = verts[e.v[1]];
       var type = e.type;
       if (type === 'C' && sameBoundarySide(a, b, w, h, tol)) type = 'B';
-      out.push({ a: [a[0], a[1]], b: [b[0], b[1]], type: type, angle: e.angle, stage: e.stage, curve: e.curve, _o: e.order });
+      out.push({ a: [a[0], a[1]], b: [b[0], b[1]], type: type, angle: e.angle, stage: e.stage, foldAngle: e.foldAngle, curve: e.curve, _o: e.order });
     });
     out.sort(function (x, y) { return x._o - y._o; });
     out.forEach(function (l) { delete l._o; });
@@ -1057,7 +1059,7 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
       verts.push([p[0], p[1]]); map[k] = verts.length - 1; return verts.length - 1;
     }
     var edges = [];
-    lines.forEach(function (l) { edges.push({ v: [vid(l.a), vid(l.b)], type: l.type, angle: l.angle, stage: l.stage || 0, curve: l.curve || null }); });
+    lines.forEach(function (l) { edges.push({ v: [vid(l.a), vid(l.b)], type: l.type, angle: l.angle, stage: l.stage || 0, foldAngle: l.foldAngle, curve: l.curve || null }); });
     var warnings = [];
     // prune dangling creases (interior vertex of degree 1) — they cannot fold and break face extraction
     var removed = 0, changed = true;
@@ -1193,7 +1195,7 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
         var gid = edgeKey[Math.min(oi, oj) + '_' + Math.max(oi, oj)];
         var ge = gid === undefined ? null : g.edges[gid];
         mekey[k] = medges.length;
-        medges.push({ n: [i, j], type: ge ? ge.type : 'F', angle: ge ? ge.angle : 0, line: !!ge, graphEdge: gid === undefined ? -1 : gid, stage: ge ? (ge.stage || 0) : 0, curve: ge ? (ge.curve || null) : null });
+        medges.push({ n: [i, j], type: ge ? ge.type : 'F', angle: ge ? ge.angle : 0, line: !!ge, graphEdge: gid === undefined ? -1 : gid, stage: ge ? (ge.stage || 0) : 0, foldAngle: ge ? ge.foldAngle : null, curve: ge ? (ge.curve || null) : null });
         edgeTris.push([]);
       }
       edgeTris[mekey[k]].push({ tri: tri, from: i, to: j, wing: wing });
@@ -1211,7 +1213,7 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
       var type = e.type;
       var sign = type === 'V' ? 1 : type === 'M' ? -1 : 0;
       var isCrease = type === 'M' || type === 'V' || type === 'U';
-      hinges.push({ a: a, b: b, c: t1.wing, d: t2.wing, type: isCrease ? type : 'F', target: sign * (e.angle || 0), edge: ei, stage: e.stage || 0, curve: e.curve || null });
+      hinges.push({ a: a, b: b, c: t1.wing, d: t2.wing, type: isCrease ? type : 'F', target: sign * (e.angle || 0), edge: ei, stage: e.stage || 0, foldAngle: e.foldAngle, curve: e.curve || null });
     });
     return { width: w, height: h, graph: g, nodes2d: nodes2d, origin: origin, tris: tris, triFace: triFace, edges: medges, hinges: hinges,
       curves: doc.curves || null, warnings: g.warnings };
@@ -5171,9 +5173,12 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
     return { width: w, height: h, nextId: 1, facets: [{ id: 0, poly: [[0, 0], [w, 0], [w, h], [0, h]], T: I(), layer: 0 }], creases: [] };
   }
   function clone(s) {
-    return { width: s.width, height: s.height, nextId: s.nextId,
+    return { width: s.width, height: s.height, nextId: s.nextId, foldCount: s.foldCount || 0,
       facets: s.facets.map(function (f) { return { id: f.id, poly: f.poly.map(function (p) { return p.slice(); }), T: cloneT(f.T), layer: f.layer }; }),
-      creases: s.creases.map(function (c) { return { a: c.a.slice(), b: c.b.slice(), type: c.type, angle: c.angle == null ? 180 : c.angle }; }),
+      creases: s.creases.map(function (c) {
+        return { a: c.a.slice(), b: c.b.slice(), type: c.type, angle: c.angle == null ? 180 : c.angle,
+          stage: c.stage, foldAngle: c.foldAngle };
+      }),
       snaps: (s.snaps || []).map(function (snap) {
         return snap.map(function (f) { return { id: f.id, poly: f.poly.map(function (p) { return p.slice(); }), T: cloneT(f.T), layer: f.layer }; });
       }) };
@@ -5212,6 +5217,9 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
     if (!sgn) return { error: '请选择折线的一侧' };
     var kind = op.kind === 'mountain' ? 'mountain' : 'valley';
     var s = clone(state);
+    // 这一折的折角（默认 180° = 折平）与折叠序号：写进折痕里，3D 仿真可以按顺序折
+    s.pendingAngle = (op.angle !== undefined && op.angle !== null) ? op.angle : 180;
+    s.foldCount = (s.foldCount || 0) + 1;
     // 记住折叠前的几何，供“折一下再打开（留折痕）”和“打开”使用
     s.snaps = (state.snaps || []).concat([state.facets.map(function (f) {
       return { id: f.id, poly: f.poly.map(function (q) { return q.slice(); }), T: cloneT(f.T), layer: f.layer };
@@ -5358,7 +5366,11 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
                (Math.abs(c.a[0] - B2[0]) < 1e-7 && Math.abs(c.a[1] - B2[1]) < 1e-7 && Math.abs(c.b[0] - A2[0]) < 1e-7 && Math.abs(c.b[1] - A2[1]) < 1e-7);
       });
       var valleyOnFront = (kind === 'valley') !== isFlipped(f);
-      if (!dup) creases.push({ a: A2, b: B2, type: valleyOnFront ? 'V' : 'M', angle: 180 });
+      if (!dup) creases.push({
+        a: A2, b: B2, type: valleyOnFront ? 'V' : 'M', angle: 180,
+        stage: s.foldCount || 1,                            // 第几次折（1 基），用于按顺序折
+        foldAngle: (s.pendingAngle !== undefined && s.pendingAngle !== null) ? s.pendingAngle : 180  // 这一折折了多少度
+      });
     });
     // 4. reflect & re-layer moving facets
     out.forEach(function (f) {
@@ -5384,7 +5396,7 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
       if (c.angle === 180 && r.creases.some(function (rc) {
         return (Math.abs(rc.a[0] - c.a[0]) < 1e-9 && Math.abs(rc.a[1] - c.a[1]) < 1e-9 && Math.abs(rc.b[0] - c.b[0]) < 1e-9 && Math.abs(rc.b[1] - c.b[1]) < 1e-9) ||
                (Math.abs(rc.a[0] - c.b[0]) < 1e-9 && Math.abs(rc.a[1] - c.b[1]) < 1e-9 && Math.abs(rc.b[0] - c.a[0]) < 1e-9 && Math.abs(rc.b[1] - c.a[1]) < 1e-9);
-      })) return { a: c.a, b: c.b, type: c.type, angle: 0 };
+      })) return { a: c.a, b: c.b, type: c.type, angle: 0, stage: c.stage, foldAngle: c.foldAngle };
       return c;
     });
     var snap = s.snaps.pop();
@@ -5397,7 +5409,7 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
     if (!state.snaps || !state.snaps.length) return { error: '已经没有可以打开的折了' };
     var s = clone(state);
     s.facets = s.snaps.pop();
-    s.creases = s.creases.map(function (c) { return { a: c.a, b: c.b, type: c.type, angle: c.angle == null ? 0 : c.angle }; });
+    s.creases = s.creases.map(function (c) { return { a: c.a, b: c.b, type: c.type, angle: c.angle == null ? 0 : c.angle, stage: c.stage, foldAngle: c.foldAngle }; });
     return { state: s };
   }
 
@@ -5407,7 +5419,7 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
     var w = s.width, h = s.height;
     s.facets = [{ id: 0, poly: [[0, 0], [w, 0], [w, h], [0, h]], T: I(), layer: 0 }];
     s.snaps = [];
-    s.creases = s.creases.map(function (c) { return { a: c.a, b: c.b, type: c.type, angle: 0 }; });
+    s.creases = s.creases.map(function (c) { return { a: c.a, b: c.b, type: c.type, angle: 0, stage: c.stage, foldAngle: c.foldAngle }; });
     return { state: s };
   }
 
@@ -5480,7 +5492,14 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
   function creasePattern(s, name) {
     var w = s.width, h = s.height;
     var lines = [{ a: [0, 0], b: [w, 0], type: 'B' }, { a: [w, 0], b: [w, h], type: 'B' }, { a: [w, h], b: [0, h], type: 'B' }, { a: [0, h], b: [0, 0], type: 'B' }];
-    s.creases.forEach(function (c) { lines.push({ a: c.a.slice(), b: c.b.slice(), type: c.type, angle: c.angle == null ? 180 : c.angle }); });
+    s.creases.forEach(function (c) {
+      lines.push({
+        a: c.a.slice(), b: c.b.slice(), type: c.type,
+        angle: c.angle == null ? 180 : c.angle,
+        stage: c.stage || 1,                                  // 第几步折出来的（按顺序折要用）
+        foldAngle: c.foldAngle === undefined ? 180 : c.foldAngle  // 折这一下时用的折角
+      });
+    });
     return { name: name || '分步折叠折痕', description: '由分步折叠生成的折痕图', width: w, height: h, lines: lines };
   }
   function serialize(s) { return JSON.stringify(s); }
@@ -5890,6 +5909,7 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
     this.show3d = false;                       // 3D 展开展示
     this.angleOverride = null;                 // 手动指定折角（3D 展示时）
     this.foldAngle = 180;                      // 手动折叠使用的折角
+    this.showStages = true;                    // 折痕上是否标注步骤号
     this.rot3d = { yaw: -0.72, pitch: 0.46 };   // 3D 展示的视角
     this.noise = this._makeNoise();
     this._bind();
@@ -5957,6 +5977,8 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
   };
 
   /** 手动指定展开角度（null = 用模型自带的角度） */
+  P.setShowStages = function (on) { this.showStages = !!on; this.dirty = true; return this.showStages; };
+
   P.setDisplayAngle = function (deg) { this.angleOverride = (deg === null || deg === undefined) ? null : +deg; this.dirty = true; };
 
   /** 这个作品能不能展开展示（有折角信息） */
@@ -6238,8 +6260,33 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
       if (!d.lift && creases.length) {
         ctx.beginPath();
         var T = d.face.T;
-        creases.forEach(function (c) { var p = self.toScreen(SF.affine.apply(T, c.a)), q = self.toScreen(SF.affine.apply(T, c.b)); ctx.moveTo(p[0], p[1]); ctx.lineTo(q[0], q[1]); });
+        var labelPts = [];
+        creases.forEach(function (c) {
+          var p = self.toScreen(SF.affine.apply(T, c.a)), q = self.toScreen(SF.affine.apply(T, c.b));
+          ctx.moveTo(p[0], p[1]); ctx.lineTo(q[0], q[1]);
+          labelPts.push({ p: p, q: q, stage: c.stage, foldAngle: c.foldAngle, type: c.type });
+        });
         ctx.strokeStyle = 'rgba(0,0,0,0.30)'; ctx.lineWidth = 1.2; ctx.stroke();
+        // 折痕上标注「第几步折出来的」（有 stage 时才标）
+        if (self.showStages !== false && labelPts.some(function (L) { return L.stage > 0; })) {
+          ctx.save();
+          ctx.font = '600 10px system-ui, -apple-system, "PingFang SC", sans-serif';
+          ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+          labelPts.forEach(function (L) {
+            if (!(L.stage > 0)) return;
+            var mx = (L.p[0] + L.q[0]) / 2, my = (L.p[1] + L.q[1]) / 2;
+            if (mx < 6 || my < 6 || mx > self.W - 6 || my > self.H - 6) return;
+            var txt = String(L.stage);
+            var w2 = ctx.measureText(txt).width + 6;
+            ctx.fillStyle = 'rgba(255,255,255,0.82)';
+            ctx.beginPath();
+            if (ctx.roundRect) ctx.roundRect(mx - w2 / 2, my - 7, w2, 14, 7); else ctx.rect(mx - w2 / 2, my - 7, w2, 14);
+            ctx.fill();
+            ctx.fillStyle = L.foldAngle !== undefined && L.foldAngle < 180 ? '#c2410c' : 'rgba(60,50,40,0.85)';
+            ctx.fillText(txt, mx, my);
+          });
+          ctx.restore();
+        }
       }
       ctx.restore();
       ctx.beginPath(); d.pts.forEach(function (p, i) { if (i) ctx.lineTo(p[0], p[1]); else ctx.moveTo(p[0], p[1]); }); ctx.closePath();
@@ -6605,6 +6652,7 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
       lines: (doc.lines || []).map(function (l) {
         var o = { a: [+l.a[0], +l.a[1]], b: [+l.b[0], +l.b[1]], type: l.type, angle: l.angle };
         if (l.stage) o.stage = l.stage;          // 折痕分阶段时必须保留，否则会退回“所有折痕同时折”
+        if (l.foldAngle !== undefined && l.foldAngle !== null) o.foldAngle = l.foldAngle;   // 这条折痕当初折了多少度
         return o;
       }),
       presetId: doc.presetId, params: doc.params, foldPercent: doc.foldPercent, removeCutIslands: doc.removeCutIslands,
@@ -7345,6 +7393,12 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
       if (!S.stepView) return;
       S.stepView.setDisplayAngle(+this.value);
       $('st3DAngleOut').textContent = this.value + '°';
+    });
+    $('stStageNums').addEventListener('click', function () {
+      if (!S.stepView) return;
+      var on = S.stepView.setShowStages(!S.stepView.showStages);
+      this.textContent = on ? '步骤号 ✓' : '步骤号 ✗';
+      this.classList.toggle('primary', false);
     });
     $('stUnfoldAll').addEventListener('click', function () {
       if (!S.stepView) return;

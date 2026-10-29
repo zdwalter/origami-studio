@@ -25,6 +25,7 @@
     this.show3d = false;                       // 3D 展开展示
     this.angleOverride = null;                 // 手动指定折角（3D 展示时）
     this.foldAngle = 180;                      // 手动折叠使用的折角
+    this.showStages = true;                    // 折痕上是否标注步骤号
     this.rot3d = { yaw: -0.72, pitch: 0.46 };   // 3D 展示的视角
     this.noise = this._makeNoise();
     this._bind();
@@ -92,6 +93,8 @@
   };
 
   /** 手动指定展开角度（null = 用模型自带的角度） */
+  P.setShowStages = function (on) { this.showStages = !!on; this.dirty = true; return this.showStages; };
+
   P.setDisplayAngle = function (deg) { this.angleOverride = (deg === null || deg === undefined) ? null : +deg; this.dirty = true; };
 
   /** 这个作品能不能展开展示（有折角信息） */
@@ -373,8 +376,33 @@
       if (!d.lift && creases.length) {
         ctx.beginPath();
         var T = d.face.T;
-        creases.forEach(function (c) { var p = self.toScreen(SF.affine.apply(T, c.a)), q = self.toScreen(SF.affine.apply(T, c.b)); ctx.moveTo(p[0], p[1]); ctx.lineTo(q[0], q[1]); });
+        var labelPts = [];
+        creases.forEach(function (c) {
+          var p = self.toScreen(SF.affine.apply(T, c.a)), q = self.toScreen(SF.affine.apply(T, c.b));
+          ctx.moveTo(p[0], p[1]); ctx.lineTo(q[0], q[1]);
+          labelPts.push({ p: p, q: q, stage: c.stage, foldAngle: c.foldAngle, type: c.type });
+        });
         ctx.strokeStyle = 'rgba(0,0,0,0.30)'; ctx.lineWidth = 1.2; ctx.stroke();
+        // 折痕上标注「第几步折出来的」（有 stage 时才标）
+        if (self.showStages !== false && labelPts.some(function (L) { return L.stage > 0; })) {
+          ctx.save();
+          ctx.font = '600 10px system-ui, -apple-system, "PingFang SC", sans-serif';
+          ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+          labelPts.forEach(function (L) {
+            if (!(L.stage > 0)) return;
+            var mx = (L.p[0] + L.q[0]) / 2, my = (L.p[1] + L.q[1]) / 2;
+            if (mx < 6 || my < 6 || mx > self.W - 6 || my > self.H - 6) return;
+            var txt = String(L.stage);
+            var w2 = ctx.measureText(txt).width + 6;
+            ctx.fillStyle = 'rgba(255,255,255,0.82)';
+            ctx.beginPath();
+            if (ctx.roundRect) ctx.roundRect(mx - w2 / 2, my - 7, w2, 14, 7); else ctx.rect(mx - w2 / 2, my - 7, w2, 14);
+            ctx.fill();
+            ctx.fillStyle = L.foldAngle !== undefined && L.foldAngle < 180 ? '#c2410c' : 'rgba(60,50,40,0.85)';
+            ctx.fillText(txt, mx, my);
+          });
+          ctx.restore();
+        }
       }
       ctx.restore();
       ctx.beginPath(); d.pts.forEach(function (p, i) { if (i) ctx.lineTo(p[0], p[1]); else ctx.moveTo(p[0], p[1]); }); ctx.closePath();

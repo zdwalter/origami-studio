@@ -100,7 +100,7 @@
       if (type !== 'B' && sameBoundarySide(cl[0], cl[1], w, h, tol)) type = 'B';
       if (type === 'B' && !sameBoundarySide(cl[0], cl[1], w, h, tol)) type = 'F'; // interior "boundary" = flat line
       var ang = (l.angle === undefined || l.angle === null || !isFinite(+l.angle)) ? defaultAngle(type) : Math.abs(+l.angle);
-      segs.push({ a: cl[0], b: cl[1], type: type, angle: Math.min(180, ang), stage: Math.max(0, Math.round(+l.stage || 0)), curve: l.curve || null });
+      segs.push({ a: cl[0], b: cl[1], type: type, angle: Math.min(180, ang), stage: Math.max(0, Math.round(+l.stage || 0)), foldAngle: (l.foldAngle === undefined ? null : +l.foldAngle), curve: l.curve || null });
     });
     // collect split parameters
     var n = segs.length, params = segs.map(function () { return [0, 1]; });
@@ -163,7 +163,7 @@
           var key2 = prev < id ? prev + '_' + id : id + '_' + prev;
           var old = edgeMap[key2];
           // later wins, except a boundary edge can never be replaced by a crease
-          if (!old || old.type !== 'B' || S.type === 'C') edgeMap[key2] = { v: [prev, id], type: S.type, angle: S.angle, stage: S.stage || 0, curve: S.curve || null, order: order++ };
+          if (!old || old.type !== 'B' || S.type === 'C') edgeMap[key2] = { v: [prev, id], type: S.type, angle: S.angle, stage: S.stage || 0, foldAngle: S.foldAngle, curve: S.curve || null, order: order++ };
         }
         prev = id;
       }
@@ -174,7 +174,7 @@
       var a = verts[e.v[0]], b = verts[e.v[1]];
       var type = e.type;
       if (type === 'C' && sameBoundarySide(a, b, w, h, tol)) type = 'B';
-      out.push({ a: [a[0], a[1]], b: [b[0], b[1]], type: type, angle: e.angle, stage: e.stage, curve: e.curve, _o: e.order });
+      out.push({ a: [a[0], a[1]], b: [b[0], b[1]], type: type, angle: e.angle, stage: e.stage, foldAngle: e.foldAngle, curve: e.curve, _o: e.order });
     });
     out.sort(function (x, y) { return x._o - y._o; });
     out.forEach(function (l) { delete l._o; });
@@ -218,7 +218,7 @@
       verts.push([p[0], p[1]]); map[k] = verts.length - 1; return verts.length - 1;
     }
     var edges = [];
-    lines.forEach(function (l) { edges.push({ v: [vid(l.a), vid(l.b)], type: l.type, angle: l.angle, stage: l.stage || 0, curve: l.curve || null }); });
+    lines.forEach(function (l) { edges.push({ v: [vid(l.a), vid(l.b)], type: l.type, angle: l.angle, stage: l.stage || 0, foldAngle: l.foldAngle, curve: l.curve || null }); });
     var warnings = [];
     // prune dangling creases (interior vertex of degree 1) — they cannot fold and break face extraction
     var removed = 0, changed = true;
@@ -354,7 +354,7 @@
         var gid = edgeKey[Math.min(oi, oj) + '_' + Math.max(oi, oj)];
         var ge = gid === undefined ? null : g.edges[gid];
         mekey[k] = medges.length;
-        medges.push({ n: [i, j], type: ge ? ge.type : 'F', angle: ge ? ge.angle : 0, line: !!ge, graphEdge: gid === undefined ? -1 : gid, stage: ge ? (ge.stage || 0) : 0, curve: ge ? (ge.curve || null) : null });
+        medges.push({ n: [i, j], type: ge ? ge.type : 'F', angle: ge ? ge.angle : 0, line: !!ge, graphEdge: gid === undefined ? -1 : gid, stage: ge ? (ge.stage || 0) : 0, foldAngle: ge ? ge.foldAngle : null, curve: ge ? (ge.curve || null) : null });
         edgeTris.push([]);
       }
       edgeTris[mekey[k]].push({ tri: tri, from: i, to: j, wing: wing });
@@ -372,7 +372,7 @@
       var type = e.type;
       var sign = type === 'V' ? 1 : type === 'M' ? -1 : 0;
       var isCrease = type === 'M' || type === 'V' || type === 'U';
-      hinges.push({ a: a, b: b, c: t1.wing, d: t2.wing, type: isCrease ? type : 'F', target: sign * (e.angle || 0), edge: ei, stage: e.stage || 0, curve: e.curve || null });
+      hinges.push({ a: a, b: b, c: t1.wing, d: t2.wing, type: isCrease ? type : 'F', target: sign * (e.angle || 0), edge: ei, stage: e.stage || 0, foldAngle: e.foldAngle, curve: e.curve || null });
     });
     return { width: w, height: h, graph: g, nodes2d: nodes2d, origin: origin, tris: tris, triFace: triFace, edges: medges, hinges: hinges,
       curves: doc.curves || null, warnings: g.warnings };

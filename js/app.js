@@ -84,6 +84,7 @@
       lines: (doc.lines || []).map(function (l) {
         var o = { a: [+l.a[0], +l.a[1]], b: [+l.b[0], +l.b[1]], type: l.type, angle: l.angle };
         if (l.stage) o.stage = l.stage;          // 折痕分阶段时必须保留，否则会退回“所有折痕同时折”
+        if (l.foldAngle !== undefined && l.foldAngle !== null) o.foldAngle = l.foldAngle;   // 这条折痕当初折了多少度
         return o;
       }),
       presetId: doc.presetId, params: doc.params, foldPercent: doc.foldPercent, removeCutIslands: doc.removeCutIslands,
@@ -824,6 +825,12 @@
       if (!S.stepView) return;
       S.stepView.setDisplayAngle(+this.value);
       $('st3DAngleOut').textContent = this.value + '°';
+    });
+    $('stStageNums').addEventListener('click', function () {
+      if (!S.stepView) return;
+      var on = S.stepView.setShowStages(!S.stepView.showStages);
+      this.textContent = on ? '步骤号 ✓' : '步骤号 ✗';
+      this.classList.toggle('primary', false);
     });
     $('stUnfoldAll').addEventListener('click', function () {
       if (!S.stepView) return;

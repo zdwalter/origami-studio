@@ -154,5 +154,34 @@ SM.list().forEach(function (meta) {
   var r2 = SF.applyOp(st2, { type: 'unfold' });
   ok(!r2.error && r2.state.facets.length === 1 && r2.state.creases.length === 1, '打开上一折：几何复原但折痕保留');
 })();
+
+// ---- 折痕带 stage（第几步折的）与 foldAngle（当时折多少度）
+(function () {
+  var s = SF.create({ width: 1, height: 1 });
+  var r1 = SF.fold(s, { a: [0.5, 0], b: [0.5, 1], side: [0.2, 0.5], kind: 'valley', angle: 90 });
+  ok(r1.creases.every(function (c) { return c.stage === 1; }), '折痕记录 stage=1（第一次折）');
+  ok(r1.creases.every(function (c) { return c.foldAngle === 90; }), '折角 90° 的折痕记录 foldAngle=90');
+  var r2 = SF.fold(r1.state, { a: [0, 0.5], b: [1, 0.5], side: [0.5, 0.8], kind: 'valley' });
+  ok(r2.creases.every(function (c) { return c.stage === 2; }), '第二次折记录 stage=2');
+  ok(r2.creases.every(function (c) { return c.foldAngle === 180; }), '没指定折角时 foldAngle=180');
+  var cp = SF.creasePattern(r2.state, 't');
+  var lines = cp.lines.filter(function (l) { return l.type === 'M' || l.type === 'V'; });
+  ok(lines.some(function (l) { return l.stage === 1 && l.foldAngle === 90; }), '折痕图保留 stage 与 foldAngle');
+  // 展开复原后信息不丢
+  var u = SF.applyOp(r2.state, { type: 'unfoldAll' }).state;
+  ok(u.creases.some(function (c) { return c.stage === 1 && c.foldAngle === 90; }), '展开复原后 stage / foldAngle 仍在');
+  // 折叠再展开（crease 操作）也保留
+  var c2 = SF.applyOp(SF.create({ width: 1, height: 1 }), { type: 'crease', a: [0.5, 0], b: [0.5, 1], side: [0.2, 0.5], angle: 90 });
+  ok(c2.state.creases.length === 1 && c2.state.creases[0].foldAngle === 90, '折出折痕再展开：foldAngle 仍为 90');
+  // 教程模型：每一步的折痕 stage 单调、且 3D 网格能按 stage 分阶段
+  if (global.CP) {
+    var g = SM.get('glider'), stg = SF.create({ width: g.width, height: g.height });
+    g.steps.forEach(function (sp) { var rr = SF.applyOp(stg, sp.op); if (!rr.error) stg = rr.state; });
+    var norm = CP.normalize(SF.creasePattern(stg, 'g').lines, { width: g.width, height: g.height });
+    var mesh = CP.buildMesh({ lines: norm, width: g.width, height: g.height });
+    var mx = 0; mesh.hinges.forEach(function (h) { mx = Math.max(mx, h.stage || 0); });
+    ok(mx >= 5, '滑翔机折痕带多个 stage（最大 ' + mx + '），3D 仿真可按顺序折');
+  }
+})();
 console.log(passes + ' passed, ' + fails + ' failed');
 process.exit(fails ? 1 : 0);
