@@ -254,31 +254,54 @@ var fails = 0; function ok(c, m) { console.log((c ? 'ok   ' : 'FAIL ') + m); if 
   ok(peel.creases >= peel.creases0, '打开某层后折痕保留（' + peel.creases0 + ' → ' + peel.creases + '）');
   ok(peel.after < peel.before, '打开这一层所在的折后纸片回到折之前（' + peel.before + ' → ' + peel.after + ' 片）');
 
-  // 14. 「沿折线折」：点一下已有折痕，就沿这条线折
-  var lf = await page.evaluate(function () {
-    var v = window.OrigamiStudio.stepView, SF = window.StepFold;
-    v.reset(1, 1); v.setTool('line');
-    v.setCreaseOnly(true);
-    v.ui = { mode: 'side', line: { a: [0.5, 0], b: [0.5, 1] } };
-    v._updatePreview([0.2, 0.5]); v._commit();
-    v.setCreaseOnly(false);
-    var creases = v.state().creases.length, facets0 = v.state().facets.length;
+  // 14. 「点到对称线」：Canard 第 7 步的三角形 → 点顶上那层 → 点它的斜边，得到第 8 步「折前鸭翼」
+  await page.evaluate(function () {
+    document.querySelector('.mode-tab[data-mode="step"]').click();
+    var it = Array.from(document.querySelectorAll('#tutList .lib-item')).filter(function (x) { return x.dataset.tut === 'canard'; })[0];
+    it.click();
+  });
+  await sleep(1200);
+  var ptAxis = await page.evaluate(function () {
+    var v = window.OrigamiStudio.stepView, SF = window.StepFold, OG = window.OG;
+    v.gotoStep(7);
+    var model = v.model, target = SF.applyOp(v.state(), model.steps[7].op).state;
+    v.history.length = 8; v.steps.length = 7; v.meta.length = 7; v.pos = 7; v.model = null; v._changed();
     document.querySelector('[data-stool="linefold"]').click();
     var tool = v.tool;
-    var near = v._nearestCrease([0.5, 0.55]);
-    v.ui = { mode: 'linefold' };
-    v.unfoldLayerAt && null;
-    v._updatePreview([0.5, 0.55]);
-    var hasPreview = !!(v.ui.preview && !v.ui.preview.res.error);
-    v._commit();
-    var st = v.state(), titles = v.getSteps().map(function (s) { return s.title; });
+    var C = Math.SQRT1_2 / 2, edgeMid = [(C + 0.5) / 2, Math.SQRT1_2 / 4];
+    function click(p) {
+      var r = v.canvas.getBoundingClientRect(), s = v.toScreen(p);
+      ['pointerdown', 'pointerup'].forEach(function (t) {
+        v.canvas.dispatchEvent(new PointerEvent(t, { clientX: r.left + s[0], clientY: r.top + s[1], button: 0, bubbles: true, pointerId: 1 }));
+      });
+    }
+    click([0.40, 0.25]);
+    var picked = v.ui.mode === 'pt2axis';
+    v.canvas.dispatchEvent(new PointerEvent('pointermove', (function () { var r = v.canvas.getBoundingClientRect(), s = v.toScreen(edgeMid); return { clientX: r.left + s[0], clientY: r.top + s[1], bubbles: true, pointerId: 1 }; })()));
+    var hover = !!v.ui.hoverCrease;
+    click(edgeMid);
+    if (v.anim) v._finishAnim();
+    var st = v.state();
+    function view(s, p) {
+      var top = null;
+      s.facets.forEach(function (f) {
+        var Q = f.poly.map(function (q) { return SF.affine.apply(f.T, q); });
+        if (OG.pointInPoly(p, Q) && (!top || f.layer > top.layer)) top = f;
+      });
+      return top ? (SF.affine.det(top.T) > 0 ? 'F' : 'B') : '-';
+    }
+    var n = 0, bad = 0;
+    for (var x = 0.005; x < Math.SQRT1_2; x += 0.01) for (var y = 0.005; y < 1; y += 0.01) {
+      var a = view(target, [x, y]), b = view(st, [x, y]);
+      if (a === '-' && b === '-') continue; n++; if (a !== b) bad++;
+    }
     document.querySelector('[data-stool="line"]').click();
-    return { tool: tool, near: !!near, creases: creases, facets0: facets0, hasPreview: hasPreview,
-             facets: st.facets.length, steps: titles.length };
+    return { tool: tool, picked: picked, hover: hover, steps: v.getSteps().length, n: n, bad: bad };
   });
-  ok(lf.tool === 'linefold' && lf.near, '「沿折线折」能吸附到最近的折痕');
-  ok(lf.hasPreview && lf.facets > lf.facets0, '点一下折痕就沿这条线折（' + lf.facets0 + ' → ' + lf.facets + ' 片）');
-  ok(lf.steps === 2, '沿折线折记成一步（共 ' + lf.steps + ' 步）');
+  ok(ptAxis.tool === 'linefold' && ptAxis.picked, '「点到对称线」第一下选中了那一层上的点');
+  ok(ptAxis.hover, '第二下靠近斜边时会高亮这条对称线');
+  ok(ptAxis.steps === 8, '点完线就折好，记成第 8 步（共 ' + ptAxis.steps + ' 步）');
+  ok(ptAxis.n > 1000 && ptAxis.bad === 0, '结果与教程第 8 步「折前鸭翼」逐点一致（' + ptAxis.bad + '/' + ptAxis.n + ' 点不同）');
 
   ok(!logs.length, 'no console errors ' + logs.join(' | '));
   await browser.close();

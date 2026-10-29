@@ -570,13 +570,24 @@
       var ang = Math.atan2(ui.b[1] - ui.a[1], ui.b[0] - ui.a[0]) * 180 / Math.PI;
       this._label(ctx, q, (Math.round(-ang * 10) / 10) + '°');
     }
-    if (ui.mode === 'side' || ui.mode === 'p2p2' || ui.mode === 'e2e2' || ui.mode === 'linefold') {
+    if (ui.mode === 'side' || ui.mode === 'p2p2' || ui.mode === 'e2e2' || ui.mode === 'pt2axis') {
       if (ui.line) this._drawFoldLine(ctx, ui.line.a, ui.line.b, this.kind);
       if (ui.preview) this._drawPreview(ctx, ui.preview.res, ui.preview.op);
     }
     if (ui.mode === 'p2p2' && ui.p) { var s = this.toScreen(ui.p); ctx.save(); ctx.fillStyle = '#e8553d'; ctx.beginPath(); ctx.arc(s[0], s[1], 5, 0, 7); ctx.fill(); ctx.restore(); }
     if (ui.edge) this._hlEdge(ctx, ui.edge, '#e8553d');
     if (ui.hoverEdge) this._hlEdge(ctx, ui.hoverEdge, 'rgba(232,85,61,0.55)');
+    if (ui.mode === 'pt2axis' && ui.p) {
+      var sp0 = this.toScreen(ui.p);
+      ctx.save(); ctx.fillStyle = '#e8553d'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(sp0[0], sp0[1], 6, 0, 7); ctx.fill(); ctx.stroke(); ctx.restore();
+      if (ui.land && ui.preview && !ui.preview.res.error) {
+        var sl = this.toScreen(ui.land);
+        ctx.save(); ctx.strokeStyle = '#e8553d'; ctx.lineWidth = 2; ctx.setLineDash([4, 3]);
+        ctx.beginPath(); ctx.moveTo(sp0[0], sp0[1]); ctx.lineTo(sl[0], sl[1]); ctx.stroke();
+        ctx.setLineDash([]); ctx.beginPath(); ctx.arc(sl[0], sl[1], 5, 0, 7); ctx.stroke(); ctx.restore();
+      }
+    }
     if (ui.hoverCrease) {
       var hc0 = this.toScreen(ui.hoverCrease.a), hc1 = this.toScreen(ui.hoverCrease.b);
       ctx.save(); ctx.strokeStyle = 'rgba(232,85,61,0.85)'; ctx.lineWidth = 4; ctx.lineCap = 'round';
@@ -609,49 +620,57 @@
       line: '折线：在纸上拖出一条折线（Shift 约束 22.5°），然后点击要翻折的一侧；Esc 取消',
       p2p: '点到点：先点击要移动的点，再点击目标点',
       e2e: '边到边：先点击要移动的边，再点击目标边',
-      linefold: '沿折线折：点一下纸上的折痕或纸边（鼠标靠近会高亮），就沿这条线折；折哪边由你点的位置决定',
+      linefold: '点到对称线：先点要折的那一层上的一个点，再点作为对称轴的折痕或纸边，这一层就沿它翻过去',
       pan: '平移：拖动画布；滚轮缩放，双击复位视图'
     }[this.tool] || '';
   };
-  /** 沿这条线折时“哪一边翻过去”：优先用鼠标位置，正好在线上就按纸的多少取小的一侧 */
-  P._foldSideForLine = function (line, w) {
-    var eps = 6 / this.view.s;
-    var cands = [w, this._lastW];
-    for (var i = 0; i < cands.length; i++) {
-      var c = cands[i];
-      if (c && Math.abs(OG.orient(line.a, line.b, c)) > 1e-7) {
-        // 只取点所在的纸片中心方向，避免侧点落在别层
-        var f = SF.facetAt(this.state(), c);
-        if (f) return c;
+  /** 当前平面里所有可当对称轴的线段：每片纸的边 + 压平的折痕（都换算到平面坐标） */
+  P._axisSegments = function () {
+    var st = this.state(), out = [];
+    function add(A, B, type) {
+      if (OG.dist(A, B) < 1e-6) return;
+      for (var i = 0; i < out.length; i++) {
+        var o = out[i];
+        if ((OG.dist(o.a, A) < 1e-7 && OG.dist(o.b, B) < 1e-7) || (OG.dist(o.a, B) < 1e-7 && OG.dist(o.b, A) < 1e-7)) return;
       }
+      out.push({ a: A, b: B, type: type });
     }
-    var dx = line.b[0] - line.a[0], dy = line.b[1] - line.a[1], L = Math.hypot(dx, dy) || 1;
-    var nx = -dy / L, ny = dx / L, mx = (line.a[0] + line.b[0]) / 2, my = (line.a[1] + line.b[1]) / 2;
-    var best = null;
-    [[1], [-1]].forEach(function (sgn) {
-      var pt = [mx + nx * eps * 2 * sgn[0], my + ny * eps * 2 * sgn[0]];
-      var f2 = SF.facetAt(this.state(), pt);
-      if (!f2) return;
-      var area = Math.abs(OG.polyArea(f2.poly));
-      if (!best || area < best.area) best = { pt: pt, area: area };
-    }, this);
-    return best ? best.pt : w;
-  };
-
-  /** 找离点击点最近的折痕线段（含纸边）：返回平面坐标里的线段 */
-  P._nearestCrease = function (w) {
-    var st = this.state(), tol = 10 / this.view.s, best = null, bd = tol;
-    st.creases.forEach(function (c) {
-      var d = OG.pointSegDist(w, c.a, c.b);
-      if (d < bd) { bd = d; best = { a: c.a.slice(), b: c.b.slice(), type: c.type, dist: d }; }
-    });
-    // 纸边也算：每片纸的边
     st.facets.forEach(function (f) {
       var P = f.poly.map(function (q) { return SF.affine.apply(f.T, q); });
-      for (var i = 0; i < P.length; i++) {
-        var A = P[i], B = P[(i + 1) % P.length], d = OG.pointSegDist(w, A, B);
-        if (d < bd) { bd = d; best = { a: A.slice(), b: B.slice(), type: 'B', dist: d }; }
-      }
+      for (var i = 0; i < P.length; i++) add(P[i], P[(i + 1) % P.length], 'edge');
+      // 压平的折痕：纸面线段裁到这片纸里，再映射到平面
+      st.creases.forEach(function (c) {
+        var seg = clipSegConvex(c.a, c.b, f.poly);
+        if (seg) add(SF.affine.apply(f.T, seg[0]), SF.affine.apply(f.T, seg[1]), c.type);
+      });
+    });
+    return out;
+  };
+  function clipSegConvex(A, B, poly) {       // Cyrus–Beck，poly 为凸多边形
+    var t0 = 0, t1 = 1, d = [B[0] - A[0], B[1] - A[1]];
+    var area = 0;
+    for (var k = 0; k < poly.length; k++) { var p = poly[k], q = poly[(k + 1) % poly.length]; area += p[0] * q[1] - q[0] * p[1]; }
+    var sgn = area > 0 ? 1 : -1;
+    for (var i = 0; i < poly.length; i++) {
+      var P0 = poly[i], P1 = poly[(i + 1) % poly.length];
+      var n = [-(P1[1] - P0[1]) * sgn, (P1[0] - P0[0]) * sgn];     // 内法向
+      var num = n[0] * (A[0] - P0[0]) + n[1] * (A[1] - P0[1]);
+      var den = n[0] * d[0] + n[1] * d[1];
+      if (Math.abs(den) < 1e-14) { if (num < -1e-12) return null; continue; }
+      var t = -num / den;
+      if (den > 0) t0 = Math.max(t0, t); else t1 = Math.min(t1, t);
+      if (t0 > t1 + 1e-12) return null;
+    }
+    if (t1 - t0 < 1e-9) return null;
+    return [[A[0] + d[0] * t0, A[1] + d[1] * t0], [A[0] + d[0] * t1, A[1] + d[1] * t1]];
+  }
+  /** 离鼠标最近的对称轴线段（屏幕上 10 像素以内） */
+  P._nearestCrease = function (w, exceptPoint) {
+    var tol = 10 / this.view.s, best = null, bd = tol;
+    this._axisSegments().forEach(function (sg) {
+      if (exceptPoint && Math.abs(OG.orient(sg.a, sg.b, exceptPoint)) / OG.dist(sg.a, sg.b) < 1e-6) return;   // 点在这条线上就不能当轴
+      var d = OG.pointSegDist(w, sg.a, sg.b);
+      if (d < bd) { bd = d; best = { a: sg.a.slice(), b: sg.b.slice(), type: sg.type, dist: d }; }
     });
     return best;
   };
@@ -672,7 +691,9 @@
   };
   P._invalidatePreview = function () { if (this.ui) { this.ui.previewKey = null; if (this.ui.lastW) this._updatePreview(this.ui.lastW); } this.dirty = true; };
   P._makeOp = function (line, side) {
-    var op = { type: this.creaseOnly ? 'crease' : 'fold', a: line.a, b: line.b, side: side, kind: this.kind, scope: this.scope };
+    var scope = this.scope;
+    if (this.tool === 'linefold' && scope === 'all') scope = 'topSheet';
+    var op = { type: this.creaseOnly ? 'crease' : 'fold', a: line.a, b: line.b, side: side, kind: this.kind, scope: scope };
     if (this.foldAngle && this.foldAngle < 180) op.angle = this.foldAngle;   // 折角（默认 180° 折平）
     return op;
   };
@@ -685,12 +706,12 @@
     ui.lastW = w;
     if (ui.mode === 'side') { line = ui.line; side = w; }
     else if (ui.mode === 'p2p2') { var q = this._snap(w).p; ui.snap = this._snap(w); if (OG.dist(q, ui.p) < 1e-5) { ui.preview = null; ui.line = null; return; } line = SF.pointToPoint(ui.p, q); ui.line = line; side = ui.p; }
-    else if (ui.mode === 'linefold') {
-      var seg = this._nearestCrease(w);
+    else if (ui.mode === 'pt2axis') {
+      var seg = this._nearestCrease(w, ui.p);
       ui.hoverCrease = seg;
-      if (!seg) { ui.preview = null; ui.line = null; return; }
-      line = { a: seg.a, b: seg.b };
-      side = this._foldSideForLine(line, w);
+      if (!seg) { ui.preview = null; ui.line = null; ui.land = null; return; }
+      line = { a: seg.a, b: seg.b }; ui.line = line; side = ui.p;
+      ui.land = SF.affine.apply(SF.affine.reflection(line.a, line.b), ui.p);   // 这个点折过去落在哪
     }
     else if (ui.mode === 'e2e2') {
       var e = this._nearestEdge(w); ui.hoverEdge = e;
@@ -736,7 +757,7 @@
         if (e.button === 1 || e.button === 2 || self.tool === 'pan' || self._space) { drag = { mode: 'pan', sx: sp[0], sy: sp[1], ox: self.view.ox, oy: self.view.oy }; c.style.cursor = 'grabbing'; return; }
         drag = { mode: 'tool', sx: sp[0], sy: sp[1], w: w, moved: false };
         if (self.tool === 'peel') { self.unfoldLayerAt(w); self.dirty = true; return; }
-        if (self.tool === 'linefold') { self.ui = { mode: 'linefold' }; self._updatePreview(w); self.dirty = true; return; }
+        if (self.tool === 'linefold') { self.dirty = true; return; }
         if (self.tool === 'line' && self.ui.mode !== 'side') { var s0 = self._snap(w); self.ui = { mode: 'drawing', a: s0.p, b: s0.p, snap: s0 }; }
         self.dirty = true;
       },
@@ -767,8 +788,9 @@
           ui.snap = self._snap(w); self.dirty = true; return;
         }
         if (self.tool === 'linefold') {
-          if (ui.mode === 'linefold') self._updatePreview(w);
-          else { ui.hoverCrease = self._nearestCrease(w); self.dirty = true; }
+          if (ui.mode === 'pt2axis') self._updatePreview(w);
+          else ui.hoverCrease = null;
+          self.dirty = true;
           return;
         }
         if (self.tool === 'p2p') {
@@ -787,8 +809,22 @@
         if (!d || self.anim) return;
         var ui = self.ui;
         if (self.tool === 'linefold') {
-          if (ui.preview && !ui.preview.res.error) self._commit();
-          self.ui = { mode: 'idle' };
+          if (ui.mode === 'pt2axis') {
+            self._updatePreview(w);
+            if (self.ui.preview && !self.ui.preview.res.error) {
+              self._commit();
+              self.ui = { mode: 'idle' };
+              self.onStatus('已沿对称线折好；再点一个点开始下一折');
+            } else if (!self.ui.hoverCrease) {
+              // 没点在线上：把这一下当成重新选点
+              if (SF.facetAt(self.state(), w)) { self.ui = { mode: 'pt2axis', p: w }; self.onStatus('已重新选点。现在点作为对称轴的那条线（折痕或纸边）'); }
+            } else if (self.ui.preview && self.ui.preview.res.error) {
+              self.onStatus('⚠ ' + self.ui.preview.res.error);
+            }
+          } else {
+            if (!SF.facetAt(self.state(), w)) { self.onStatus('请点在纸上：选要折的那一层上的一个点'); }
+            else { self.ui = { mode: 'pt2axis', p: w }; self.onStatus('现在点作为对称轴的那条线（折痕或纸边），点到的那一层会沿它翻过去；Esc 取消'); }
+          }
           self.dirty = true;
           return;
         }

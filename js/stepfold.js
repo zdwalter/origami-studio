@@ -117,6 +117,22 @@
     });
   }
 
+  /** 两片纸（纸面坐标）共享的那段边，返回 [p, q] 或 null */
+  function sharedSeg(A, B) {
+    for (var i = 0; i < A.length; i++) {
+      var a0 = A[i], a1 = A[(i + 1) % A.length], la = OG.dist(a0, a1);
+      if (la < 1e-12) continue;
+      for (var j = 0; j < B.length; j++) {
+        var b0 = B[j], b1 = B[(j + 1) % B.length];
+        if (Math.abs(OG.orient(a0, a1, b0)) / la > 1e-7 || Math.abs(OG.orient(a0, a1, b1)) / la > 1e-7) continue;
+        var d = OG.sub(a1, a0);
+        var t0 = OG.dot(OG.sub(b0, a0), d) / (la * la), t1 = OG.dot(OG.sub(b1, a0), d) / (la * la);
+        var lo = Math.max(0, Math.min(t0, t1)), hi = Math.min(1, Math.max(t0, t1));
+        if ((hi - lo) * la > 1e-6) return [OG.lerp(a0, a1, lo), OG.lerp(a0, a1, hi)];
+      }
+    }
+    return null;
+  }
   // do two polygons (paper coords) share a boundary segment of positive length?
   function shareEdge(A, B) {
     for (var i = 0; i < A.length; i++) {
@@ -219,6 +235,15 @@
     // 2. choose the moving set
     var movingPieces = pieces.filter(function (p) { return p.moving; });
     if (!movingPieces.length) return { error: '折线这一侧没有纸' };
+    /** 两片要动的纸是否连着、且连接边不在折线上（在折线上 = 这一折的铰链，不往对面传） */
+    function connectedOffHinge(p, q) {
+      var seg = sharedSeg(p.poly, q.poly);
+      if (!seg) return false;
+      var L = OG.dist(a, b);
+      var P0 = apply(p.parent.T, seg[0]), P1 = apply(p.parent.T, seg[1]);
+      var onLine = Math.abs(OG.orient(a, b, P0)) / L < 1e-6 && Math.abs(OG.orient(a, b, P1)) / L < 1e-6;
+      return !onLine;
+    }
     if (op.scope === 'topSheet') {
       // 「仅最上层」：模拟真手只捏起最上面那一层往下折——
       //  1) 起点 = 点击处最上面的那片纸（按点到多边形的距离找，点在边上也算）；
@@ -268,7 +293,7 @@
           var cur = queue.shift();
           movingPieces.forEach(function (p) {
             if (sel.indexOf(p) >= 0) return;
-            if (!shareEdge(cur.poly, p.poly)) return;
+            if (!connectedOffHinge(cur, p)) return;
             sel.push(p); queue.push(p); changed = true;
           });
         }
@@ -298,7 +323,7 @@
         var cur = queue.shift();
         movingPieces.forEach(function (p) {
           if (set.indexOf(p) >= 0) return;
-          if (shareEdge(cur.poly, p.poly)) { set.push(p); queue.push(p); }
+          if (connectedOffHinge(cur, p)) { set.push(p); queue.push(p); }
         });
       }
       movingPieces.forEach(function (p) { p.selected = set.indexOf(p) >= 0; });
@@ -355,6 +380,9 @@
       else f.layer = minL - 1 - (f.layer - mvMin);
       delete f.moving;
     });
+    // 折线正好贴着纸片的边时，裁切会留下面积为 0 的碎片，去掉
+    out = out.filter(function (f) { return Math.abs(OG.polyArea(f.poly)) > 1e-10; });
+    moved = moved.filter(function (id) { return out.some(function (f) { return f.id === id; }); });
     s.facets = out;
     s.creases = s.creases.concat(creases);
     compactLayers(s);
