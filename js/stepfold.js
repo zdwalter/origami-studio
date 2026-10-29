@@ -776,6 +776,8 @@
     })();
     var mesh = {
       width: width, height: height, nodes2d: nodes2d, tris: tris, edges: [], hinges: [], warnings: [], bias: bias,
+      ambient: 0.88,                                    // 折叠过程里颜色保持纸的本来颜色，不被光照压暗
+
       lineIdx: lineIdxData.map(function (l) { return [l[0], l[1], l[2]]; })
     };
     var model = {

@@ -20,7 +20,7 @@
     'precision highp float;',
     'varying vec3 vNrm; varying vec2 vUV; varying vec3 vCol; varying vec3 vWorld;',
     'uniform vec3 uFront; uniform vec3 uBack; uniform vec3 uEye; uniform vec3 uLight;',
-    'uniform float uUseCol; uniform float uPattern; uniform float uTexture; uniform float uAlpha;',
+    'uniform float uUseCol; uniform float uPattern; uniform float uTexture; uniform float uAlpha; uniform float uAmbient;',
     'float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7)))*43758.5453); }',
     'float noise(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);',
     '  return mix(mix(hash(i),hash(i+vec2(1,0)),f.x), mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),f.x), f.y); }',
@@ -40,7 +40,7 @@
     '  float diff = max(dot(n, L), 0.0); float fill = max(dot(n, normalize(vec3(-0.4,0.3,-0.6))), 0.0);',
     '  float rim = pow(1.0 - max(dot(n, v), 0.0), 3.0);',
     '  vec3 h = normalize(L + v); float spec = pow(max(dot(n,h),0.0), 40.0)*0.08;',
-    '  vec3 col = base*(0.42 + 0.58*diff + 0.18*fill) + spec + rim*0.06;',
+    '  vec3 col = base*(uAmbient + (1.0 - uAmbient)*diff + 0.12*fill) + spec + rim*0.05;',
     '  gl_FragColor = vec4(col, uAlpha);',
     '}'
   ].join('\n');
@@ -124,6 +124,7 @@
   PaperRenderer.prototype.setMesh = function (mesh) {
     var gl = this.gl;
     this.mesh = mesh;
+    this.ambient = (mesh && mesh.ambient !== undefined) ? mesh.ambient : 0.42;
     this.fPos = null;
     var nv = mesh.positions.length / 3;
     if (!this.uint && nv > 65535) throw new Error('网格过大');
@@ -349,6 +350,7 @@
     gl.uniform1f(pp.loc.uPattern, o.pattern || 0);
     gl.uniform1f(pp.loc.uTexture, o.texture ? 1 : 0);
     gl.uniform1f(pp.loc.uAlpha, 1);
+    gl.uniform1f(pp.loc.uAmbient, this.ambient === undefined ? 0.42 : this.ambient);
     gl.enable(gl.POLYGON_OFFSET_FILL); gl.polygonOffset(1, 1);
     if (this.flatShading && this.fBuf) {
       gl.bindBuffer(gl.ARRAY_BUFFER, this.fBuf.pos); this._attr(pp, 'aPos', 3);
