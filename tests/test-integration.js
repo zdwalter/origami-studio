@@ -228,6 +228,24 @@ var fails = 0; function ok(c, m) { console.log((c ? 'ok   ' : 'FAIL ') + m); if 
   ok(crease.type === 'crease', '「压痕」按钮折一下再展开，记成压痕步骤');
   ok(crease.facets === 1 && crease.creases === 1, '压痕后纸保持平面、留下 1 条折痕');
 
+  // 13. 「打开某层」按钮：点纸面打开那一层所在的折
+  var peel = await page.evaluate(function () {
+    var v = window.OrigamiStudio.stepView;
+    v.reset(1, 1); v.setCreaseOnly(false); v.setTool('line');
+    v._userOp({ type: 'fold', a: [0.5, 0], b: [0, 0.5], side: [0.08, 0.08], kind: 'valley', scope: 'all' }, '折左上角', '');
+    v._userOp({ type: 'fold', a: [0.5, 0], b: [0.5, 1], side: [0.2, 0.5], kind: 'valley', scope: 'all' }, '沿中线折', '');
+    var before = v.state().facets.length;
+    document.getElementById('stPeel').click();
+    var tool = v.tool;
+    var ok = v.unfoldLayerAt([0.75, 0.4]);
+    var st = v.state(), last = v.getSteps()[v.getSteps().length - 1];
+    document.getElementById('stPeel').click();
+    return { tool: tool, ok: ok, before: before, after: st.facets.length, creases: st.creases.length, type: last && last.op.type };
+  });
+  ok(peel.tool === 'peel', '「打开某层」按钮切到点选模式');
+  ok(peel.ok && peel.after < peel.before, '点一下打开了该处那一层所在的折（' + peel.before + ' → ' + peel.after + ' 片）');
+  ok(peel.type === 'unfoldLayer' && peel.creases > 0, '「打开某层」记成一步、折痕保留');
+
   ok(!logs.length, 'no console errors ' + logs.join(' | '));
   await browser.close();
   console.log(fails ? fails + ' FAILED' : 'ALL OK');

@@ -75,6 +75,19 @@
   };
   P.flip = function () { this._userOp({ type: 'flip' }, '翻面', '把纸翻过来。'); };
   P.rotate = function (deg) { this._userOp({ type: 'rotate', deg: deg }, '旋转 ' + (deg > 0 ? '+' : '') + deg + '°', '在桌面上旋转纸张。'); };
+  /** 点击处：打开该处最上面那一层所在的折（再点一次继续往下一层开） */
+  P.unfoldLayerAt = function (world) {
+    var facet = SF.facetAt(this.state(), world);
+    if (!facet) { this.onStatus('这里没有纸'); return false; }
+    var inv = SF.affine.invert(facet.T);
+    var paperPt = SF.affine.apply(inv, world);
+    var probe = SF.unfoldLayer(this.state(), paperPt, 1);
+    if (probe.error) { this.onStatus('⚠ ' + probe.error); return false; }
+    var n = (this.steps.filter(function (x) { return x.user; }).length) + 1;
+    return this._userOp({ type: 'unfoldLayer', point: paperPt, nth: 1 },
+      '打开某层（第 ' + n + ' 次自定义）',
+      '打开点到的那一层所在的折（该处共 ' + probe.layerCount + ' 层），折痕保留');
+  };
   P.setTool = function (t) { this.tool = t; this.ui = { mode: 'idle' }; this.dirty = true; this.onStatus(this._hint()); this.canvas.style.cursor = t === 'pan' ? 'grab' : 'crosshair'; };
   P.setKind = function (k) { this.kind = k === 'mountain' ? 'mountain' : 'valley'; this._invalidatePreview(); };
   P.setScope = function (s) { this.scope = s; this._invalidatePreview(); };
@@ -640,6 +653,7 @@
         if (self.show3d) { drag = { mode: 'orbit', sx: sp[0], sy: sp[1], yaw: self.rot3d.yaw, pitch: self.rot3d.pitch }; c.style.cursor = 'grabbing'; return; }
         if (e.button === 1 || e.button === 2 || self.tool === 'pan' || self._space) { drag = { mode: 'pan', sx: sp[0], sy: sp[1], ox: self.view.ox, oy: self.view.oy }; c.style.cursor = 'grabbing'; return; }
         drag = { mode: 'tool', sx: sp[0], sy: sp[1], w: w, moved: false };
+        if (self.tool === 'peel') { self.unfoldLayerAt(w); self.dirty = true; return; }
         if (self.tool === 'line' && self.ui.mode !== 'side') { var s0 = self._snap(w); self.ui = { mode: 'drawing', a: s0.p, b: s0.p, snap: s0 }; }
         self.dirty = true;
       },

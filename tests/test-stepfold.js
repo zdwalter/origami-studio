@@ -351,5 +351,27 @@ SM.list().forEach(function (meta) {
   }
   ok(span(0.25) > 0.15 && Math.abs(span(1)) < 0.02, '3D 能把“折起来又展开”演出来（中途 ' + span(0.25).toFixed(2) + '，末端 ' + span(1).toFixed(2) + '）');
 })();
+
+// ---- 打开「某层」：点纸面上的位置，打开那一层所在的折（折痕保留）
+(function () {
+  var st = SF.create({ width: 1, height: 1 });
+  function ap(op) { var r = SF.applyOp(st, op); if (!r.error) st = r.state; return r; }
+  ap({ type: 'fold', a: [0.5, 0], b: [0, 0.5], side: [0.08, 0.08], kind: 'valley' });
+  ap({ type: 'fold', a: [0.5, 0], b: [0.5, 1], side: [0.2, 0.5], kind: 'valley' });
+  var before = st.facets.length, creases = st.creases.length;
+  var facet = SF.facetAt(st, [0.75, 0.4]);
+  ok(!!facet, '点选能找到该处最上面那片纸');
+  var paperPt = SF.affine.apply(SF.affine.invert(facet.T), [0.75, 0.4]);
+  var r = SF.unfoldLayer(st, paperPt, 1);
+  ok(!r.error, '「打开某层」能找到那一层所在的折' + (r.error ? '（' + r.error + '）' : ''));
+  if (!r.error) {
+    ok(r.state.facets.length < before, '打开后纸片变少（' + before + ' → ' + r.state.facets.length + '），几何回到折之前');
+    ok(r.state.creases.length === creases, '打开某层后折痕全部保留（' + r.state.creases.length + ' 条）');
+    ok(r.foldNo >= 1, '报告打开的是第 ' + r.foldNo + ' 折');
+  }
+  // 通过 op 也能走（这样能被记成教程步骤、能存能重放）
+  var r2 = SF.applyOp(st, { type: 'unfoldLayer', point: paperPt, nth: 1 });
+  ok(!r2.error && r2.state.facets.length < before, '「打开某层」可以作为一个步骤 op 重放');
+})();
 console.log(passes + ' passed, ' + fails + ' failed');
 process.exit(fails ? 1 : 0);

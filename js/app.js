@@ -947,6 +947,14 @@
     $('stRotL').addEventListener('click', function () { if (S.stepView) S.stepView.rotate(-45); });
     $('stRotR').addEventListener('click', function () { if (S.stepView) S.stepView.rotate(45); });
     $('stReset').addEventListener('click', function () { newPaper($('stPaper').value); });
+    $('stPeel').addEventListener('click', function () {
+      if (!S.stepView) return;
+      var on = !(this.dataset.on === '1');
+      this.dataset.on = on ? '1' : '0';
+      this.classList.toggle('primary', on);
+      S.stepView.setTool(on ? 'peel' : 'line');
+      $('stStatus').textContent = on ? '打开某层：在纸上点一下，打开该处最上面那一层所在的折（再点一次开下一层）' : '折线：在纸上拖出一条折线';
+    });
     $('stCreaseOnly').addEventListener('click', function () {
       var on = !(this.dataset.on === '1');
       this.dataset.on = on ? '1' : '0';
