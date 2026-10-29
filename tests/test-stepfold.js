@@ -200,5 +200,22 @@ SM.list().forEach(function (meta) {
   var cr2 = m2.hinges.filter(function (h) { return h.type === 'V' || h.type === 'M'; });
   ok(cr2.every(function (h) { return Math.abs(h.target) < 1e-6; }), '压痕（展开）的折痕目标角保持 0');
 })();
+
+// ---- 折叠树直接生成 3D 模型（绕开折痕图重建）
+(function () {
+  var g = SM.get('glider');
+  var pm = SF.buildPoseModel(g.steps, { width: g.width, height: g.height });
+  ok(pm.isPose === true && pm.n > 50, '折叠树模型：顶点数 ' + pm.n);
+  ok(pm.mesh.tris.length > 20, '折叠树模型：三角形 ' + pm.mesh.tris.length + ' 个');
+  ok(pm.maxStage >= 5, '折叠树模型：分阶段数 ' + pm.maxStage);
+  pm.setFoldPercent(0);
+  var b0 = pm.bounds(), s0 = [b0.max[0] - b0.min[0], b0.max[1] - b0.min[1], b0.max[2] - b0.min[2]];
+  ok(Math.abs(b0.max[2] - b0.min[2]) < 1e-6, '折叠树模型：0% 时是整张平纸');
+  pm.setFoldPercent(1);
+  var b1 = pm.bounds(), s1 = [b1.max[0] - b1.min[0], b1.max[1] - b1.min[1], b1.max[2] - b1.min[2]];
+  ok(s1[2] > 0.2, '折叠树模型：100% 时折出立体形状（z 跨度 ' + s1[2].toFixed(3) + '）');
+  ok(s0[0] > s1[0] * 2, '折叠树模型：折完后尺寸明显变小（' + s0[0].toFixed(2) + ' → ' + s1[0].toFixed(2) + '）');
+  ok(typeof pm.toOBJ('x') === 'string' && pm.toOBJ('x').indexOf('v ') > 0, '折叠树模型：可导出 OBJ');
+})();
 console.log(passes + ' passed, ' + fails + ' failed');
 process.exit(fails ? 1 : 0);

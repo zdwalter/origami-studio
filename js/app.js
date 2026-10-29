@@ -130,7 +130,8 @@
     for (var i = 0; i < n; i++) { uvs[i * 2] = mesh.nodes2d[i][0] / mesh.width; uvs[i * 2 + 1] = mesh.nodes2d[i][1] / mesh.height; }
     mesh.tris.forEach(function (t, k) { idx[k * 3] = t[0]; idx[k * 3 + 1] = t[1]; idx[k * 3 + 2] = t[2]; });
     var lineIdx = [];
-    mesh.edges.forEach(function (e) { if (e.line) lineIdx.push([e.n[0], e.n[1], e.type]); });
+    if (mesh.lineIdx && mesh.lineIdx.length) lineIdx = mesh.lineIdx.slice();      // 折叠树直接生成的模型自带折痕线
+    else mesh.edges.forEach(function (e) { if (e.line) lineIdx.push([e.n[0], e.n[1], e.type]); });
     return { positions: solver.positions, uvs: uvs, indices: idx, lineIdx: lineIdx };
   }
 
@@ -144,6 +145,7 @@
     catch (e) { console.error(e); toast('无法生成网格：' + e.message, true); return; }
     if (!mesh.tris.length) { toast('折痕图没有可用的面', true); return; }
     S.mesh = mesh;
+    S.poseModel = null;                          // 换回普通文档时清掉折叠树模型
     S.solver = new OrigamiSolver(mesh, S.sim);
     // 多层紧贴的图案（菱形筒、同心圆褶）：开了自碰撞会把几十层纸顶开、把形状撑变形，这里临时关掉
     var effCollision = doc.stackedLayers ? false : S.collisionPref;
@@ -547,13 +549,30 @@
   }
   function stepTo3D() {
     var v = S.stepView; if (!v) return;
+    var steps = v.getSteps();
+    if (!steps.length || !steps.some(function (st) { return st.op && st.op.type === 'fold'; })) { toast('还没有折痕，先折几下吧', true); return; }
     var doc = v.getCreasePattern();
-    if (!doc || !doc.lines || !doc.lines.some(function (l) { return l.type === 'M' || l.type === 'V'; })) { toast('还没有折痕，先折几下吧', true); return; }
     var name = ($('stepModelSel').selectedOptions[0] && $('stepModelSel').value ? $('stepModelSel').selectedOptions[0].textContent.replace(/（.*$/, '') : '分步折叠') + ' 折痕';
     doc.name = doc.name || name;
+    // 直接从折叠树生成 3D（不走折痕图重建：多层折痕图对求解器是矛盾的，会算歪）
+    var pm;
+    try { pm = StepFold.buildPoseModel(steps, { width: doc.width, height: doc.height }); }
+    catch (e) { console.error(e); }
     switchMode('sim');
-    loadDoc(doc, { foldPercent: 0.9 });
-    toast('已将折痕发送到 3D 仿真（分步折叠的层序信息不会保留，仿真按折痕重新折叠）');
+    if (!pm) { loadDoc(doc, { foldPercent: 0.9 }); return; }
+    S.doc = cleanDoc(doc);
+    S.presetId = null;
+    S.mesh = pm.mesh;
+    S.solver = pm;
+    S.poseModel = pm;
+    S.fp = 0; S.settled = 0; S.fitPending = true; S.sleepT = 0;
+    if (S.renderer) {
+      S.renderer.setMesh(rendererMesh(pm.mesh, pm));
+      S.renderer.fit(false);
+    }
+    updateInfo(); updateCPPanel(); renderParams();
+    setTarget(1);
+    toast('已成 3D 模型：按折叠顺序一道一道折（拖「折叠程度」回看每一步）');
   }
 
   // ------------------------------------------------------------------ import / export

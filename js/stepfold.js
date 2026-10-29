@@ -670,11 +670,133 @@
     return { polys: polys, min: mn, max: mx, state: st };
   }
 
+
+  /**
+   * 直接从分步折叠的折叠树生成 3D 模型（网格 + 假求解器接口），
+   * 绕开"折痕图 → 求解器"那条路：多层折痕图对求解器是矛盾的，会算歪。
+   * 返回的对象可以直接塞给 renderer 和 app：positions / step / setFoldPercent / bounds ...
+   */
+  function buildPoseModel(steps, opts) {
+    opts = opts || {};
+    var width = opts.width || 1, height = opts.height || 1;
+    // 1) 先跑一遍，记下每一步是第几次折（用于分阶段 ramp）
+    var stages = [], foldCount = 0, stepAngles = [];
+    steps.forEach(function (st) {
+      var op = st.op || st;
+      if (op.type === 'fold') {
+        foldCount++;
+        stages.push(foldCount);
+        stepAngles.push(op.angle !== undefined && op.angle !== null ? op.angle : 180);
+      } else { stages.push(0); stepAngles.push(180); }
+    });
+    var nStage = foldCount;
+
+    // 2) 建拓扑：每个纸片单独一套顶点（多层叠在一起时不能共用顶点）
+    var nodes2d = [], tris = [], owner = [], lineIdxData = [];
+    function buildTopology() {
+      nodes2d = []; tris = []; owner = []; lineIdxData = [];
+      var flat = create({ width: width, height: height });
+      steps.forEach(function (st) { var r = applyOp(flat, st.op); if (!r.error) flat = r.state; });
+      flat.facets.forEach(function (f, fi) {
+        var base = nodes2d.length;
+        f.poly.forEach(function (q) { nodes2d.push([q[0], q[1]]); owner.push(fi); });
+        for (var i = 1; i + 1 < f.poly.length; i++) tris.push([base, base + i, base + i + 1]);
+        // 折痕线（纸片边落在折痕上的）
+        for (var e = 0; e < f.poly.length; e++) {
+          var A = f.poly[e], B = f.poly[(e + 1) % f.poly.length];
+          var mid = [(A[0] + B[0]) / 2, (A[1] + B[1]) / 2];
+          for (var ci = 0; ci < flat.creases.length; ci++) {
+            var c = flat.creases[ci], L = OG.dist(c.a, c.b);
+            if (L < 1e-9) continue;
+            if (Math.abs(OG.orient(c.a, c.b, mid)) / L < 1e-7 && OG.pointSegDist(A, c.a, c.b) < 1e-7 && OG.pointSegDist(B, c.a, c.b) < 1e-7) {
+              lineIdxData.push([base + e, base + (e + 1) % f.poly.length, c.type]);
+              break;
+            }
+          }
+        }
+      });
+      return flat;
+    }
+    var flatState = buildTopology();
+    var n = nodes2d.length, positions = new Float32Array(n * 3);
+
+    // 3) 给定折叠程度，算每个顶点的三维位置
+    function poseAt(fp) {
+      var ramp = function (stage) {
+        if (!stage) return 0;
+        var v0 = Math.abs(fp) * nStage - (stage - 1);
+        return v0 <= 0 ? 0 : v0 >= 1 ? 1 : v0;
+      };
+      var angles = {};
+      for (var i = 0; i < steps.length; i++) angles[i] = stepAngles[i] * ramp(stages[i]);
+      return threeDPose(steps, { width: width, height: height, angles: angles });
+    }
+    var lastPose = null;
+    function applyPose(fp) {
+      var pose = poseAt(fp); lastPose = pose;
+      var k = 0, fi = 0;
+      // threeDPose 的 polys 顺序与 flat.facets 一致（都是 applyOp 重放的结果）
+      for (fi = 0; fi < pose.polys.length; fi++) {
+        var pts = pose.polys[fi].pts;
+        for (var i = 0; i < pts.length && k < n; i++) {
+          positions[k * 3] = pts[i][0]; positions[k * 3 + 1] = pts[i][1]; positions[k * 3 + 2] = pts[i][2];
+          k++;
+        }
+      }
+      return positions;
+    }
+    applyPose(1);
+
+    var mesh = {
+      width: width, height: height, nodes2d: nodes2d, tris: tris, edges: [], hinges: [], warnings: [],
+      lineIdx: lineIdxData.map(function (l) { return [l[0], l[1], l[2]]; })
+    };
+    var model = {
+      isPose: true, mesh: mesh, n: n, positions: positions, x: positions,
+      params: { collision: false, thickness: 0.001, axialStiffness: 1, damping: 0.1, globalDamping: 0.05 },
+      v: new Float32Array(n * 3), grab: null, foldPercent: 1, _flatness: 0,
+      maxStage: nStage,
+      setFoldPercent: function (fp) { this.foldPercent = fp; applyPose(fp); return this; },
+      step: function () { return this; },
+      kinetic: function () { return 0; },
+      creaseError: function () { return 0; },
+      strainMax: function () { return 0; },
+      maxSpeed: function () { return 0; },
+      orient: function () { return this; },
+      reset: function () { this.setFoldPercent(1); return this; },
+      strain: function () { return { max: 0, node: new Float32Array(n) }; },
+      bounds: function () {
+        var mn = [1e9, 1e9, 1e9], mx = [-1e9, -1e9, -1e9];
+        for (var i = 0; i < n; i++) for (var q = 0; q < 3; q++) { var t = positions[i * 3 + q]; if (t < mn[q]) mn[q] = t; if (t > mx[q]) mx[q] = t; }
+        return { min: mn, max: mx };
+      },
+      syncPositions: function () { return this; },
+      toOBJ: function (name) {
+        var out = ['o ' + (name || 'origami')], i, k;
+        for (i = 0; i < n; i++) out.push('v ' + positions[i * 3].toFixed(6) + ' ' + positions[i * 3 + 1].toFixed(6) + ' ' + positions[i * 3 + 2].toFixed(6));
+        for (k = 0; k < tris.length; k++) out.push('f ' + (tris[k][0] + 1) + ' ' + (tris[k][1] + 1) + ' ' + (tris[k][2] + 1));
+        return out.join('\n');
+      },
+      toSTL: function () {
+        var out = ['solid origami'];
+        for (var k = 0; k < tris.length; k++) {
+          var A = tris[k][0] * 3, B = tris[k][1] * 3, C = tris[k][2] * 3;
+          out.push('  facet normal 0 0 0\n    outer loop');
+          [A, B, C].forEach(function (o) { out.push('      vertex ' + positions[o].toFixed(6) + ' ' + positions[o + 1].toFixed(6) + ' ' + positions[o + 2].toFixed(6)); });
+          out.push('    endloop\n  endfacet');
+        }
+        out.push('endsolid origami');
+        return out.join('\n');
+      }
+    };
+    return model;
+  }
+
   global.StepFold = {
     create: create, clone: clone, fold: fold, crease: crease, unfold: unfold, unfoldAll: unfoldAll, flip: flip, rotate: rotate, applyOp: applyOp, bounds: bounds, hitFacet: hitFacet,
     lineFromPoints: lineFromPoints, pointToPoint: pointToPoint, edgeToEdge: edgeToEdge,
     visibleFaces: visibleFaces, outlineEdges: outlineEdges, snapPoints: snapPoints, totalArea: totalArea,
-    creasePattern: creasePattern, threeDPose: threeDPose, serialize: serialize, deserialize: deserialize,
+    creasePattern: creasePattern, threeDPose: threeDPose, buildPoseModel: buildPoseModel, serialize: serialize, deserialize: deserialize,
     affine: { apply: apply, compose: compose, invert: invert, det: det, reflection: reflection }
   };
 })(typeof window !== 'undefined' ? window : globalThis);
