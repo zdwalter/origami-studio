@@ -99,7 +99,8 @@ SM.list().forEach(function (meta) {
   list.forEach(function (id) {
     var m = SM.get(id), st = SF.create({ width: m.width, height: m.height });
     m.steps.forEach(function (s) { var r = SF.applyOp(st, s.op); if (!r.error) st = r.state; });
-    var pose = SF.threeDPose(m.steps, { width: m.width, height: m.height });
+    var flatAngles = {}; m.steps.forEach(function (_, i) { flatAngles[i] = 180; });
+    var pose = SF.threeDPose(m.steps, { width: m.width, height: m.height, angles: flatAngles });
     var a = sig(pose.polys.map(function (p) {
       return p.pts.map(function (q) { return [q[0], q[1], 0].map(function (v) { return v.toFixed(3); }).join(','); }).sort();
     }));
@@ -113,8 +114,11 @@ SM.list().forEach(function (meta) {
   var g = SM.get('glider'), pg = SF.threeDPose(g.steps, { width: g.width, height: g.height, angles: g.displayAngles || {} });
   var zSpan = pg.max[2] - pg.min[2];
   ok(zSpan > 0.02, '3D 展示姿态：滑翔机展开后有机翼高度（z 跨度 ' + zSpan.toFixed(3) + '）');
-  var flat = SF.threeDPose(g.steps, { width: g.width, height: g.height });
-  ok(Math.abs((flat.max[2] - flat.min[2])) < 1e-6, '3D 展示姿态：不展开时仍是平的');
+  var flatAngles2 = {}; g.steps.forEach(function (_, i) { flatAngles2[i] = 180; });
+  var flat = SF.threeDPose(g.steps, { width: g.width, height: g.height, angles: flatAngles2 });
+  ok(Math.abs((flat.max[2] - flat.min[2])) < 1e-6, '3D 展示姿态：全部按 180° 时仍是平的');
+  // 折角写在 fold 操作里（op.angle）也生效
+  ok(g.steps.filter(function (s) { return s.op.angle === 90; }).length === 2, '滑翔机两侧机翼记录折角 90°（op.angle）');
 })();
 console.log(passes + ' passed, ' + fails + ' failed');
 process.exit(fails ? 1 : 0);

@@ -23,6 +23,8 @@
     this.ui = { mode: 'idle' };
     this.anim = null;
     this.show3d = false;                       // 3D 展开展示
+    this.angleOverride = null;                 // 手动指定折角（3D 展示时）
+    this.foldAngle = 180;                      // 手动折叠使用的折角
     this.rot3d = { yaw: -0.72, pitch: 0.46 };   // 3D 展示的视角
     this.noise = this._makeNoise();
     this._bind();
@@ -76,7 +78,18 @@
   P.setKind = function (k) { this.kind = k === 'mountain' ? 'mountain' : 'valley'; this._invalidatePreview(); };
   P.setScope = function (s) { this.scope = s; this._invalidatePreview(); };
   P.setPaperColors = function (f, b) { this.front = hexRgb(f); this.back = hexRgb(b); this.dirty = true; };
-  /** 切换到「3D 展开展示」：把折好的成品按模型的 displayAngles 打开成三维姿态 */
+  /** 手动指定展开角度（null = 用模型自带的角度） */
+  P.setDisplayAngle = function (deg) { this.angleOverride = (deg === null || deg === undefined) ? null : +deg; this.dirty = true; };
+
+  /** 这个作品能不能展开展示（有折角信息） */
+  P.canShow3D = function () {
+    var m = this.model, self2 = this;
+    if (!m || !this.steps.length) return false;
+    if (m.displayAngles) return true;
+    return this.steps.some(function (s2) { return s2.op && (s2.op.angle !== undefined || s2.op.foldAngle !== undefined); });
+  };
+
+  /** 切换到「3D 展开展示」：把折好的成品按折角打开成三维姿态 */
   P.set3D = function (on) {
     this.show3d = !!on;
     this.ui = { mode: 'idle' };
@@ -89,8 +102,17 @@
   P._draw3D = function (ctx) {
     var self = this, W = this.W, H = this.H;
     var m = this.model || { width: 1, height: 1 };
+    // 每一步的折角：模型 displayAngles < 这一折操作自带的 angle < 180°；手动覆盖优先
+    var self0 = this, angles = {};
+    this.steps.forEach(function (s2, i) {
+      var base = (m.displayAngles && m.displayAngles[i] !== undefined) ? m.displayAngles[i]
+        : (s2.op && (s2.op.angle !== undefined ? s2.op.angle : s2.op.foldAngle) !== undefined
+          ? (s2.op.angle !== undefined ? s2.op.angle : s2.op.foldAngle) : 180);
+      if (base < 180 && self0.angleOverride != null) base = self0.angleOverride;
+      angles[i] = base;
+    });
     var pose = SF.threeDPose(this.steps.map(function (s2) { return { op: s2.op }; }), {
-      width: m.width || 1, height: m.height || 1, angles: m.displayAngles || {}
+      width: m.width || 1, height: m.height || 1, angles: angles
     });
     var mn = pose.min, mx = pose.max;
     var size = Math.max(mx[0] - mn[0], mx[1] - mn[1], mx[2] - mn[2], 1e-3);
@@ -455,7 +477,13 @@
     return best;
   };
   P._invalidatePreview = function () { if (this.ui) { this.ui.previewKey = null; if (this.ui.lastW) this._updatePreview(this.ui.lastW); } this.dirty = true; };
-  P._makeOp = function (line, side) { return { type: 'fold', a: line.a, b: line.b, side: side, kind: this.kind, scope: this.scope }; };
+  P._makeOp = function (line, side) {
+    var op = { type: 'fold', a: line.a, b: line.b, side: side, kind: this.kind, scope: this.scope };
+    if (this.foldAngle && this.foldAngle < 180) op.angle = this.foldAngle;   // 折角（默认 180° 折平）
+    return op;
+  };
+  /** 设置手动折叠的折角（180 = 折平） */
+  P.setFoldAngle = function (deg) { this.foldAngle = Math.max(0, Math.min(180, +deg || 180)); return this.foldAngle; };
   P._updatePreview = function (w) {
     var ui = this.ui, line = null, side = null;
     ui.lastW = w;

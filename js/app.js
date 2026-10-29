@@ -820,6 +820,11 @@
     $('stRotR').addEventListener('click', function () { if (S.stepView) S.stepView.rotate(45); });
     $('stReset').addEventListener('click', function () { if (S.stepView) { $('stepModelSel').value = ''; S.stepView.reset(1, 1); $('stepModelDesc').textContent = ''; renderStepList(); } });
     $('stTo3D').addEventListener('click', stepTo3D);
+    $('stAngle').addEventListener('change', function () {
+      if (!S.stepView) return;
+      var deg = S.stepView.setFoldAngle(+this.value);
+      toast(deg >= 180 ? '折角 180°：折平（常规折法）' : ('折角 ' + deg + '°：这一折只折到 ' + deg + '°，点「3D 展开展示」看三维姿态'));
+    });
     $('st3D').addEventListener('click', function () {
       if (!S.stepView) return;
       var on = S.stepView.set3D(!S.stepView.show3d);

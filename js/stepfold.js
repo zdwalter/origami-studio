@@ -502,7 +502,9 @@
         M[f.id] = (cur && M[cur.id]) ? M[cur.id] : m3ident();
       });
       if (op.type === 'fold') {
-        var ang = angles[i] === undefined ? 180 : angles[i];
+        // 折角优先级：调用参数 → 这一步自己记录的 fold 角度 → 180°（完全折平）
+        var ang = angles[i] !== undefined ? angles[i]
+          : (op.angle !== undefined ? op.angle : (op.foldAngle !== undefined ? op.foldAngle : 180));
         // 折线是“当前折叠平面”里的坐标：先换算回纸面坐标，再用该纸片的 M3 映射到三维
         var mv = (r.moved || [])[0];
         var parentFacet = null;
