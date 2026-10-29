@@ -98,15 +98,35 @@
    * 只影响：这一步折痕记录的 foldAngle、3D 展开展示、以及发送到 3D 的折叠树。
    * 修改后重放所有步骤，保证折痕元数据与状态一致。
    */
+  /**
+   * 修改某一步的折角（0..180，180 = 折平）。
+   * 只改这一步：写 op.angle + 把这一步自己折出来的那些折痕的 foldAngle 改掉。
+   * 不复算、不重放——后续步骤的状态、折痕、编号、历史全部原样保留。
+   */
   P.setStepAngle = function (i, deg) {
     var st = this.steps[i];
     if (!st || !st.op || st.op.type !== 'fold') return false;
     deg = Math.max(0, Math.min(180, Math.round(deg)));
     if (deg >= 180) delete st.op.angle; else st.op.angle = deg;
-    this._replay();
+
+    // 这一步是第几次折叠（fold 与 crease 都会记折痕，折叠序号一致）
+    var ordinal = 0;
+    for (var q = 0; q <= i; q++) {
+      var t = this.steps[q] && this.steps[q].op && this.steps[q].op.type;
+      if (t === 'fold' || t === 'crease') ordinal++;
+    }
+    // 只改「这一步折出来的」折痕，后续步骤的折痕不动
+    this.history.forEach(function (state) {
+      if (!state || !state.creases) return;
+      state.creases.forEach(function (c) { if (c.stage === ordinal) c.foldAngle = deg; });
+    });
+    if (this.anim) this._finishAnim();
+    this.dirty = true;
+    this._changed();
     return true;
   };
-  /** 用当前 steps 重新重放：重建 history / meta，折痕里的 foldAngle 随之更新 */
+
+  /** 用当前 steps 重新重放（慎用：会重建全部历史状态；改折角不要用这个） */
   P._replay = function () {
     if (this.anim) this._finishAnim();
     var w = this.history[0].width, h = this.history[0].height;

@@ -136,6 +136,37 @@ var fails = 0; function ok(c, m) { console.log((c ? 'ok   ' : 'FAIL ') + m); if 
   ok(edit.after180 === 'undefined', '折角设回 180° 时恢复默认折平');
   ok(edit.steps === 12, '改折角不会丢步骤（' + edit.steps + ' 步）');
 
+  // 改前面的步骤不能影响后面已有步骤
+  var surgical = await page.evaluate(function () {
+    var v = window.OrigamiStudio.stepView;
+    v.gotoStep(12);
+    function snap() {
+      return {
+        steps: v.getSteps().map(function (s) { return JSON.stringify([s.title, s.op.type, s.op.angle === undefined ? null : s.op.angle]); }),
+        creases: v.state().creases.map(function (c) { return c.stage + ':' + c.foldAngle; }),
+        histLen: v.history.length, pos: v.pos
+      };
+    }
+    var before = snap();
+    v.setStepAngle(4, 100);            // 第 5 步 折右边 → 100°
+    var after = snap();
+    var changedSteps = [];
+    before.steps.forEach(function (s, i) { if (s !== after.steps[i]) changedSteps.push(i + 1); });
+    var changedCreases = 0;
+    before.creases.forEach(function (c, i) { if (c !== after.creases[i]) changedCreases++; });
+    return {
+      changedSteps: changedSteps, changedCreases: changedCreases,
+      histLenSame: before.histLen === after.histLen && before.pos === after.pos,
+      laterIntact: after.steps.slice(5).join('|') === before.steps.slice(5).join('|'),
+      ang5: v.getSteps()[4].op.angle
+    };
+  });
+  ok(surgical.ang5 === 100, '改第 5 步折角为 100° 生效');
+  ok(surgical.changedSteps.join(',') === '5', '只有第 5 步的数据被改（其它步骤原样）');
+  ok(surgical.laterIntact, '后续已有步骤完全不受影响');
+  ok(surgical.histLenSame, '历史长度与当前位置不变');
+  ok(surgical.changedCreases > 0 && surgical.changedCreases <= 4, '只更新这一步自己的折痕（' + surgical.changedCreases + ' 条）');
+
   ok(!logs.length, 'no console errors ' + logs.join(' | '));
   await browser.close();
   console.log(fails ? fails + ' FAILED' : 'ALL OK');
