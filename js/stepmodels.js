@@ -150,9 +150,9 @@
         { title: '翻面', description: '把纸整个翻过来。', op: { type: 'flip' } },
         { title: '翻面', description: '再翻一次，回到原来那一面。', op: { type: 'flip' } },
         { title: '沿中线对折', description: '沿中折痕把纸对折，成为窄窄的一条。', op: { type: 'fold', a: [0.354, 0], b: [0.354, 1], side: [0.125, 0.552], scope: 'topSheet' } },
-        { title: '折下右侧机翼', description: '从机头斜向尾缘折下右侧机翼（只折连通的整叠翻片）。', op: { type: 'fold', a: [0.354, 0], b: [0.549, 0.981], side: [0.582, 0.551], scope: 'topSheet' } },
+        { title: '折下右侧机翼（90°）', description: '从机头斜向尾缘把右侧机翼折到与机身成 90°。', op: { type: 'fold', a: [0.354, 0], b: [0.549, 0.981], side: [0.582, 0.551], scope: 'topSheet', angle: 90 } },
         { title: '翻面', description: '翻到另一面。', op: { type: 'flip' } },
-        { title: '折下左侧机翼', description: '同样折下左侧机翼，滑翔机完成。', op: { type: 'fold', a: [0.707, 0], b: [0.512, 0.981], side: [0.479, 0.551], scope: 'topSheet' } },
+        { title: '折下左侧机翼（90°）', description: '同样把左侧机翼折到 90°，滑翔机完成。', op: { type: 'fold', a: [0.707, 0], b: [0.512, 0.981], side: [0.479, 0.551], scope: 'topSheet', angle: 90 } },
       ]
     });
   })();

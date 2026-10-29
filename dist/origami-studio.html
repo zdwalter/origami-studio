@@ -566,6 +566,7 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
           <p><b>折痕设计</b>：在 2D 折痕图编辑器中绘制山折（红）、谷折（蓝）、平面线、自由铰链、剪切线，右侧实时 3D 预览；编辑器会检查每个内部顶点是否满足平折条件。</p>
           <p><b>分步折叠</b>：像折真纸一样一步步折：画折线、点到点、边到边，可翻面/旋转，跟随教程完成纸飞机、纸船等作品，并可把折痕发送到 3D 仿真。</p>
           <p><b>3D 展开展示</b>：折完的作品（如纸飞机、滑翔机）点工具栏「3D 展开展示」，会把折好的成品按三维姿态展开（机翼张开、机身撑起），可以拖动旋转看各个角度；再点一次回到平面。</p>
+          <p><b>折角进 3D</b>：折痕记录的 `foldAngle` 会直接作为 3D 仿真的目标折角——比如机翼那两道记的是 90°，3D 里就折到 90°，而不是一律折平到 180°。只是"压了痕再展开"的折痕（angle=0）仍保持 0，不会因为记录过折角就折起来。</p>
           <p><b>折痕的顺序与折角</b>：每条折痕都记着「第几步折出来的」（stage）和「当时折了多少度」（foldAngle）。平面视图默认在折痕上标步骤号（工具栏「步骤号」可关）；把折痕发到 3D 仿真后，3D 会<b>按步骤顺序一道一道折</b>，而不是所有折痕同时折。</p>
           <p><b>展开复原 / 打开上一折</b>：折过之后点「展开复原」，纸会重新铺平，但折痕全部留在纸上（可以作为折痕图导出、发送到 3D 仿真）；「打开上一折」只把最近折的那一下打开，折痕同样保留。两个操作都记成一步，可以撤销。</p>
           <p><b>折角</b>：工具栏的「折角」可以选择这一折折多少度——180° 是常规的折平，90° 是折到与纸面垂直，60° 是只折 60°。折角会记在这一步里，成品用「3D 展开展示」按这个角度展开；平面视图仍按折平显示（层序和折痕计算需要平面状态）。</p>
@@ -1213,7 +1214,11 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
       var type = e.type;
       var sign = type === 'V' ? 1 : type === 'M' ? -1 : 0;
       var isCrease = type === 'M' || type === 'V' || type === 'U';
-      hinges.push({ a: a, b: b, c: t1.wing, d: t2.wing, type: isCrease ? type : 'F', target: sign * (e.angle || 0), edge: ei, stage: e.stage || 0, foldAngle: e.foldAngle, curve: e.curve || null });
+      // 目标折角：折痕如果记录了 foldAngle（当时折了多少度），3D 就直接折到这个角度；
+      // 只是压了痕（angle 0）的仍保持 0，不会因为记录过折角而折起来。
+      var baseAng = e.angle || 0;
+      var tgtAng = (baseAng === 0) ? 0 : (e.foldAngle !== undefined && e.foldAngle !== null ? e.foldAngle : baseAng);
+      hinges.push({ a: a, b: b, c: t1.wing, d: t2.wing, type: isCrease ? type : 'F', target: sign * tgtAng, edge: ei, stage: e.stage || 0, foldAngle: e.foldAngle, angle: baseAng, curve: e.curve || null });
     });
     return { width: w, height: h, graph: g, nodes2d: nodes2d, origin: origin, tris: tris, triFace: triFace, edges: medges, hinges: hinges,
       curves: doc.curves || null, warnings: g.warnings };
@@ -5867,9 +5872,9 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
         { title: '翻面', description: '把纸整个翻过来。', op: { type: 'flip' } },
         { title: '翻面', description: '再翻一次，回到原来那一面。', op: { type: 'flip' } },
         { title: '沿中线对折', description: '沿中折痕把纸对折，成为窄窄的一条。', op: { type: 'fold', a: [0.354, 0], b: [0.354, 1], side: [0.125, 0.552], scope: 'topSheet' } },
-        { title: '折下右侧机翼', description: '从机头斜向尾缘折下右侧机翼（只折连通的整叠翻片）。', op: { type: 'fold', a: [0.354, 0], b: [0.549, 0.981], side: [0.582, 0.551], scope: 'topSheet' } },
+        { title: '折下右侧机翼（90°）', description: '从机头斜向尾缘把右侧机翼折到与机身成 90°。', op: { type: 'fold', a: [0.354, 0], b: [0.549, 0.981], side: [0.582, 0.551], scope: 'topSheet', angle: 90 } },
         { title: '翻面', description: '翻到另一面。', op: { type: 'flip' } },
-        { title: '折下左侧机翼', description: '同样折下左侧机翼，滑翔机完成。', op: { type: 'fold', a: [0.707, 0], b: [0.512, 0.981], side: [0.479, 0.551], scope: 'topSheet' } },
+        { title: '折下左侧机翼（90°）', description: '同样把左侧机翼折到 90°，滑翔机完成。', op: { type: 'fold', a: [0.707, 0], b: [0.512, 0.981], side: [0.479, 0.551], scope: 'topSheet', angle: 90 } },
       ]
     });
   })();

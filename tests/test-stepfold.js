@@ -183,5 +183,22 @@ SM.list().forEach(function (meta) {
     ok(mx >= 5, '滑翔机折痕带多个 stage（最大 ' + mx + '），3D 仿真可按顺序折');
   }
 })();
+
+// ---- 3D 目标角度直接采用 foldAngle
+(function () {
+  var s = SF.create({ width: 1, height: 1 });
+  var r = SF.fold(s, { a: [0.5, 0], b: [0.5, 1], side: [0.2, 0.5], kind: 'valley', angle: 90 });
+  var lines = SF.creasePattern(r.state, 't').lines;
+  var norm = CP.normalize(lines, { width: 1, height: 1 });
+  var mesh = CP.buildMesh({ lines: norm, width: 1, height: 1 });
+  var cre = mesh.hinges.filter(function (h) { return h.type === 'V' || h.type === 'M'; });
+  ok(cre.length >= 1 && cre.every(function (h) { return Math.abs(Math.abs(h.target) - 90) < 1e-6; }), '3D 折痕目标角 = foldAngle（90°）');
+  // 只是压痕（angle 0）的折痕，即使记录过折角，目标仍是 0
+  var c2 = SF.applyOp(SF.create({ width: 1, height: 1 }), { type: 'crease', a: [0.5, 0], b: [0.5, 1], side: [0.2, 0.5], angle: 90 });
+  var n2 = CP.normalize(SF.creasePattern(c2.state, 't').lines, { width: 1, height: 1 });
+  var m2 = CP.buildMesh({ lines: n2, width: 1, height: 1 });
+  var cr2 = m2.hinges.filter(function (h) { return h.type === 'V' || h.type === 'M'; });
+  ok(cr2.every(function (h) { return Math.abs(h.target) < 1e-6; }), '压痕（展开）的折痕目标角保持 0');
+})();
 console.log(passes + ' passed, ' + fails + ' failed');
 process.exit(fails ? 1 : 0);

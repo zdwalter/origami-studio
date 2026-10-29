@@ -372,7 +372,11 @@
       var type = e.type;
       var sign = type === 'V' ? 1 : type === 'M' ? -1 : 0;
       var isCrease = type === 'M' || type === 'V' || type === 'U';
-      hinges.push({ a: a, b: b, c: t1.wing, d: t2.wing, type: isCrease ? type : 'F', target: sign * (e.angle || 0), edge: ei, stage: e.stage || 0, foldAngle: e.foldAngle, curve: e.curve || null });
+      // 目标折角：折痕如果记录了 foldAngle（当时折了多少度），3D 就直接折到这个角度；
+      // 只是压了痕（angle 0）的仍保持 0，不会因为记录过折角而折起来。
+      var baseAng = e.angle || 0;
+      var tgtAng = (baseAng === 0) ? 0 : (e.foldAngle !== undefined && e.foldAngle !== null ? e.foldAngle : baseAng);
+      hinges.push({ a: a, b: b, c: t1.wing, d: t2.wing, type: isCrease ? type : 'F', target: sign * tgtAng, edge: ei, stage: e.stage || 0, foldAngle: e.foldAngle, angle: baseAng, curve: e.curve || null });
     });
     return { width: w, height: h, graph: g, nodes2d: nodes2d, origin: origin, tris: tris, triFace: triFace, edges: medges, hinges: hinges,
       curves: doc.curves || null, warnings: g.warnings };
