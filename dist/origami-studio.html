@@ -6137,6 +6137,29 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
       ]
     });
   })();
+  // ---------------------------------------------------------------- 鸭翼滑翔机（Canard，A4 长方形纸）
+  // 按图纸 9 格还原的草稿：前 5 步（中线、两上角、两侧斜边）与图纸一致，
+  // 机尾上折（鸭翼）与机翼步骤待用真实折叠数据校对。
+  (function () {
+    models.push({
+      id: 'canard', name: '鸭翼滑翔机（Canard）', difficulty: 3, frontColor: '#3aa757',
+      description: '图纸 9 格的鸭翼纸飞机草稿：中线 → 两上角折到中线 → 两侧斜边折到中线 → 机尾上折出鸭翼 → 翻面 → 沿中线对折 → 两侧机翼。',
+      width: Math.SQRT1_2, height: 1,
+      steps: [
+        { title: '折出中线', description: '沿中线压出折痕再展开。', op: { type: 'crease', a: [0.353553, 0], b: [0.353553, 1], side: [0.176777, 0.5], kind: 'valley', scope: 'all' } },
+        { title: '折左上角', description: '左上角折到中线上，机头变尖。', op: { type: 'fold', a: [0.353553, 0], b: [0, 0.353553], side: [0.03, 0.03], kind: 'valley', scope: 'all' } },
+        { title: '折右上角', description: '右上角同样折到中线。', op: { type: 'fold', a: [0.353553, 0], b: [0.707107, 0.353553], side: [0.677107, 0.03], kind: 'valley', scope: 'all' } },
+        { title: '折左斜边', description: '左侧斜边再折到中线，机身变窄。', op: { type: 'fold', a: [0.353553, 0], b: [0, 0.86], side: [0.05, 0.6], kind: 'valley', scope: 'all' } },
+        { title: '折右斜边', description: '右侧斜边同样折到中线。', op: { type: 'fold', a: [0.353553, 0], b: [0.707107, 0.86], side: [0.657107, 0.6], kind: 'valley', scope: 'all' } },
+        { title: '底部尖角折上', description: '把底部（机尾）向上折，鸭翼的尖角从顶端露出来。', op: { type: 'fold', a: [0, 0.56], b: [0.707107, 0.56], side: [0.353553, 0.95], kind: 'valley', scope: 'all' } },
+        { title: '翻面', description: '把纸整个翻过来。', op: { type: 'flip' } },
+        { title: '沿中线对折', description: '沿中线山折，一半折到背面，机身变薄。', op: { type: 'fold', a: [0.353553, 0], b: [0.353553, 1], side: [0.212132, 0.5], kind: 'mountain', scope: 'all' } },
+        { title: '折前机翼', description: '折下前机翼（只取最上面一层）。', op: { type: 'fold', a: [0.443553, 0], b: [0.443553, 1], side: [0.553553, 0.55], kind: 'valley', scope: 'top' } },
+        { title: '翻面', description: '翻到另一面。', op: { type: 'flip' } },
+        { title: '折后机翼', description: '折下后机翼，两侧对称。完成！', op: { type: 'fold', a: [0.443553, 0], b: [0.443553, 1], side: [0.553553, 0.55], kind: 'mountain', scope: 'bottom' } },
+      ]
+    });
+  })();
 
   function list() { return models.map(function (m) { return { id: m.id, name: m.name, difficulty: m.difficulty, description: m.description, steps: m.steps.length }; }); }
   function get(id) { for (var i = 0; i < models.length; i++) if (models[i].id === id) return JSON.parse(JSON.stringify(models[i])); return null; }
