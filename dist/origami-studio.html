@@ -6096,77 +6096,20 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
     });
   })();
 
-  // ---------------------------------------------------------------- 滑翔机 #2（A4 长方形纸，按图纸 9 格）
+  // ---------------------------------------------------------------- 滑翔机 #2（A4 长方形纸）
+  // 折线取自用户按图纸折好后导出的工程文件（doc.lines 里的 stage + foldAngle）。
+  // 前 4 步的折痕/山谷方向逐条比对一致（见 tests/test-stepfold.js）；后续收边与机翼步骤待补齐。
   (function () {
-    var W = Math.SQRT1_2, C = W / 2;          // A4 比例：宽 0.707，中线 0.354
-    var st = StepFold.create({ width: W, height: 1 });
-    var steps = [];
-    function push(title, description, op) {
-      var r = StepFold.applyOp(st, op);
-      if (r.error) { console.warn('glider2: ' + title + ' → ' + r.error); return false; }
-      st = r.state;
-      steps.push({ title: title, description: description, op: op });
-      return true;
-    }
-    function bnd() { return StepFold.bounds(st); }
-    /** 当前状态里最上面一层纸片的中心（当作点选位置） */
-    function topPoint() {
-      var f = st.facets.slice().sort(function (a, b) { return b.layer - a.layer; })[0];
-      var pts = f.poly.map(function (q) { return StepFold.affine.apply(f.T, q); });
-      return OG.polyCentroid(pts);
-    }
-    function fold(title, description, a, b, side, kind, scope) {
-      return push(title, description, { type: 'fold', a: a, b: b, side: side, kind: kind || 'valley', scope: scope || 'all' });
-    }
-
-    // 1 折出中线
-    push('折出中线', '沿中线对折压出折痕，再展开。', { type: 'crease', a: [C, 0], b: [C, 1], side: [0.12, 0.5] });
-    // 2–3 上角折到中线
-    fold('折左上角', '左上角沿斜线折到中线上，上边贴住中线。', [C, 0], [0, C], [0.03, 0.03]);
-    fold('折右上角', '右上角同样折到中线，顶部形成尖角。', [C, 0], [W, C], [W - 0.03, 0.03]);
-    // 4 机头尖角折下（折线在两上角折痕下方：只折机头尖角，两个上角留在原位）
-    fold('机头尖角折下', '把机头尖角沿水平折痕折下来，两个上角留在原位不动。', [0, 0.46], [W, 0.46], [C, 0.06]);
-    // 5–6 两侧斜边再折到中线
-    fold('折左边到中线', '把左侧边缘折到中线上，机身变窄。', [C * 0.5, 0.46], [C * 0.5, 1], [0.05, 0.8]);
-    fold('折右边到中线', '右侧同样把边缘折到中线上。', [C * 1.5, 0.46], [C * 1.5, 1], [W - 0.05, 0.8]);
-    // 7 底部尖角折上
-    (function () {
-      var b = bnd(), yb = b.max[1], cen = (b.min[0] + b.max[0]) / 2;
-      fold('底部尖角折上', '把底部的三角尖向上折，锁住中间几层。', [b.min[0], yb - 0.03], [b.max[0], yb - 0.03], [cen, yb - 0.01]);
-    })();
-    // 8 翻面
-    push('翻面', '把纸整个翻过来，让要折机翼的一面朝上。', { type: 'flip' });
-    // 9-12 两侧机翼：折线与外侧斜边平行，只折最上面一层
-    /** 取最上层里最靠某一侧的纸片中心，作为点选位置（保证落在纸面上） */
-    function pickOuter(side) {
-      var best = null, bestV = side === 'right' ? -1e9 : 1e9;
-      st.facets.slice().sort(function (a, b) { return b.layer - a.layer; }).forEach(function (f) {
-        var pts = f.poly.map(function (q) { return StepFold.affine.apply(f.T, q); });
-        var c = OG.polyCentroid(pts);
-        var v = side === 'right' ? c[0] : -c[0];
-        if (v > bestV) { bestV = v; best = c; }
-      });
-      return best;
-    }
-    function wingFold(side, kind, desc) {
-      var b = bnd(), cx = (b.min[0] + b.max[0]) / 2;
-      var pick = pickOuter(side);
-      if (!pick) return;
-      // 折线：从顶部尖角方向到尾部，穿过「机身中线」与「选中纸片」之间（约 2/3 处）
-      var fx = cx + (pick[0] - cx) * 0.58;
-      var line = { a: [fx, b.min[1] + (b.max[1] - b.min[1]) * 0.08], b: [fx + (pick[0] - cx) * 0.1, b.max[1] - (b.max[1] - b.min[1]) * 0.04] };
-      fold(side === 'right' ? '折下右机翼' : '折下左机翼', desc, line.a, line.b, pick, kind, 'top');
-    }
-
-    wingFold('right', 'valley', '沿与外侧斜边平行的折线把右翼折下来（只折最上面一层）。');
-    push('翻面', '翻到另一面。', { type: 'flip' });
-    wingFold('left', 'valley', '同样折下左翼，两侧对称。完成！');
-
     models.push({
       id: 'glider2', name: '滑翔机 #2（A4 长方形纸）', difficulty: 2, frontColor: '#e8553d',
-      displayOpen: { step: 6, angle: 90 },
-      description: '图纸 9 格的滑翔机：中线 → 两个上角折到中线 → 机头尖角折下 → 两侧斜边再折到中线 → 底部尖角折上 → 翻面 → 折出两侧机翼。',
-      width: W, height: 1, steps: steps
+      description: '图纸第 1–4 格：中线 → 两上角折到中线 → 机头尖角折下（折线按你导出的工程文件逐条对齐）。后面的收边/机翼步骤待补齐。',
+      width: Math.SQRT1_2, height: 1,
+      steps: [
+        { title: '折出中线', description: '沿中线对折压出折痕，再展开。', op: { type: 'crease', a: [0.353553, 0], b: [0.353553, 1], side: [0.25, 0.2], kind: 'valley', scope: 'all' } },
+        { title: '折左上角', description: '左上角沿 45° 斜线折到中线上。', op: { type: 'fold', a: [0.353553, 0], b: [0, 0.353553], side: [0.03, 0.03], kind: 'valley', scope: 'all' } },
+        { title: '折右上角', description: '右上角同样折到中线。', op: { type: 'fold', a: [0.353553, 0], b: [0.707107, 0.353553], side: [0.677107, 0.03], kind: 'valley', scope: 'all' } },
+        { title: '机头尖角折下', description: '把机头尖角沿 y≈0.46 的水平折痕折下来，两个上角留在原位。', op: { type: 'fold', a: [0, 0.46], b: [0.707107, 0.46], side: [0.353553, 0.06], kind: 'valley', scope: 'all' } }
+      ]
     });
   })();
 

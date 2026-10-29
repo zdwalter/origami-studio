@@ -276,5 +276,47 @@ SM.list().forEach(function (meta) {
   });
   ok(dn === 0 && up > 0, '折叠树模型：展开时所有三角形正面朝观察者（' + up + '/' + (up + dn) + '）');
 })();
+
+// ---- 「滑翔机 #2」前 6 步：逐阶段与用户按图纸折好后导出的工程文件比对折痕 ----
+(function () {
+  var fs = null;
+  try { fs = require('fs'); } catch (e) { return; }
+  var path = null;
+  try { path = require('path'); } catch (e) { return; }
+  var file = path && path.join(__dirname, 'fixtures', 'glider2-user.json');
+  if (!fs || !file || !fs.existsSync(file)) return;
+  var ref = JSON.parse(fs.readFileSync(file, 'utf8'));
+  var want = {};
+  ref.doc.lines.forEach(function (l) {
+    if (l.type === 'B' || l.stage > 4) return;
+    (want[l.stage] = want[l.stage] || []).push(l);
+  });
+  function canon(l) {
+    var dx = l.b[0] - l.a[0], dy = l.b[1] - l.a[1], L = Math.hypot(dx, dy);
+    var ang = Math.atan2(dy, dx) * 180 / Math.PI;
+    while (ang < 0) ang += 180; while (ang >= 180) ang -= 180;
+    var nx = -dy / L, ny = dx / L, off = nx * l.a[0] + ny * l.a[1];
+    if (ang > 90) { ang -= 180; off = -off; }
+    return { ang: Math.abs(ang), off: off, type: l.type };
+  }
+  var m = SM.get('glider2'), st = SF.create({ width: m.width, height: m.height });
+  var bad = [];
+  m.steps.slice(0, 4).forEach(function (step, i) {
+    var stage = i + 1;
+    var r = SF.applyOp(st, step.op);
+    if (r.error) { bad.push('第' + stage + '步应用失败'); return; }
+    st = r.state;
+    var got = SF.creasePattern(st, 'x').lines.filter(function (l) { return l.type !== 'B' && l.stage === stage; }).map(canon);
+    var exp = (want[stage] || []).map(canon), used = [], hit = 0;
+    got.forEach(function (g) {
+      for (var k = 0; k < exp.length; k++) {
+        if (used[k]) continue;
+        if (Math.abs(g.ang - exp[k].ang) < 2.5 && Math.abs(g.off - exp[k].off) < 0.03 && g.type === exp[k].type) { used[k] = 1; hit++; return; }
+      }
+    });
+    if (hit !== exp.length) bad.push('第' + stage + '步折痕 ' + hit + '/' + exp.length);
+  });
+  ok(bad.length === 0, '滑翔机#2 前 4 步与用户折痕图逐阶段一致' + (bad.length ? '（' + bad.join('，') + '）' : ''));
+})();
 console.log(passes + ' passed, ' + fails + ' failed');
 process.exit(fails ? 1 : 0);
