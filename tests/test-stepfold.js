@@ -383,5 +383,31 @@ SM.list().forEach(function (meta) {
     ok(!r3.error, '掀开的 op 可以重放（导出/3D 用）');
   }
 })();
+
+// ---- 「打开某层」：回到折之前的样子（用快照精确还原），折痕保留
+(function () {
+  var st = SF.create({ width: 1, height: 1 });
+  function ap(op) { var r = SF.applyOp(st, op); if (!r.error) st = r.state; return r; }
+  ap({ type: 'fold', a: [0.5, 0], b: [0, 0.5], side: [0.08, 0.08], kind: 'valley' });
+  ap({ type: 'fold', a: [0.5, 0], b: [0.5, 1], side: [0.2, 0.5], kind: 'valley' });
+  var mid = st.facets.length;
+  ap({ type: 'fold', a: [0.3, 0.1], b: [0.3, 0.7], side: [0.6, 0.4], kind: 'valley' });
+  var after = st.facets.length, creases = st.creases.length;
+  // 取最上层纸片的中心当点选位置（保证点上有纸）
+  var top = null;
+  st.facets.forEach(function (f) { if (!top || f.layer > top.layer) top = f; });
+  var P = top.poly.map(function (q) { return SF.affine.apply(top.T, q); });
+  var cen = OG.polyCentroid(P);
+  var paper = SF.affine.apply(SF.affine.invert(top.T), cen);
+  var r = SF.unfoldLayer(st, paper, 1);
+  ok(!r.error && r.exact, '「打开某层」对最近这一折用快照精确还原' + (r.error ? '（' + r.error + '）' : ''));
+  if (!r.error) {
+    ok(r.state.facets.length === mid, '几何回到折之前（' + after + ' → ' + r.state.facets.length + ' 片，折之前是 ' + mid + ' 片）');
+    ok(r.state.creases.length === creases, '折痕全部保留（' + r.state.creases.length + ' 条）');
+    var area = 0;
+    r.state.facets.forEach(function (f) { area += Math.abs(OG.polyArea(f.poly)); });
+    ok(Math.abs(area - 1) < 1e-6, '面积守恒（' + area.toFixed(4) + '）');
+  }
+})();
 console.log(passes + ' passed, ' + fails + ' failed');
 process.exit(fails ? 1 : 0);

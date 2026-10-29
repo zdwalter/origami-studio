@@ -368,8 +368,24 @@
         return;
       }
     });
+    // 折线的纸面坐标（翻面/旋转/删除别的折之后依然成立），供“打开某层”按纸面重放
+    var paperLine = null, paperSide = null;
+    state.facets.forEach(function (f) {
+      if (paperLine) return;
+      var inv = invert(f.T);
+      var pa = apply(inv, a), pb = apply(inv, b), ps = apply(inv, sidePt);
+      if (movedPolys.length && movedPolys.every(function (poly) { return true; }) &&
+          (insidePoly(pa, f.poly) || insidePoly(pb, f.poly) || OG.pointSegDist(pa, f.poly[0], f.poly[1]) < 1e-6)) {
+        paperLine = [pa, pb]; paperSide = ps;
+      }
+    });
+    if (!paperLine) {
+      var f0 = state.facets[0], inv0 = invert(f0.T);
+      paperLine = [apply(inv0, a), apply(inv0, b)]; paperSide = apply(inv0, sidePt);
+    }
     s.ops = (state.ops || []).concat([{ type: 'fold', a: op.a, b: op.b, side: op.side, kind: op.kind, scope: op.scope,
-      movedCens: movedCens, movedPolys: movedPolys }]);
+      movedCens: movedCens, movedPolys: movedPolys, paperLine: paperLine, paperSide: paperSide,
+      paperSideSign: Math.sign(OG.orient(paperLine[0], paperLine[1], paperSide)) || 1 }]);
     return { state: s, moved: moved, creases: creases };
   }
 
@@ -512,6 +528,27 @@
       return { error: '这一处没有折起来的层可以打开（可能本来就是一整张）' };
     }
     var idx = hits[Math.min(nth, hits.length) - 1];
+    // 要打开的就是最近这一折：直接用折之前存下的快照，几何 100% 还原（“回到折之前的样子”）
+    var lastFold = -1;
+    for (var q = ops.length - 1; q >= 0; q--) if (ops[q].type === 'fold') { lastFold = q; break; }
+    if (idx === lastFold && state.snaps && state.snaps.length) {
+      var snap = state.snaps[state.snaps.length - 1];
+      var s2 = clone(state);
+      s2.facets = snap.map(function (f) {
+        return { id: f.id, poly: f.poly.map(function (q2) { return q2.slice(); }), T: cloneT(f.T), layer: f.layer };
+      });
+      s2.snaps = state.snaps.slice(0, -1);
+      s2.ops = ops.slice(0, idx).concat(ops.slice(idx + 1));
+      // 这一折的折痕留在纸上（angle 归 0）
+      var keepKeys = {};
+      s2.creases.forEach(function (c) { keepKeys[lineKey(c)] = 1; });
+      var reopenedC = state.creases.filter(function (c) { return !keepKeys[lineKey(c)]; }).map(function (c) {
+        return { a: c.a.slice(), b: c.b.slice(), type: c.type, angle: 0, stage: c.stage, foldAngle: c.foldAngle };
+      });
+      s2.creases = s2.creases.concat(reopenedC);
+      s2.undoneCreases = (state.undoneCreases || []).concat(reopenedC);
+      return { state: s2, foldNo: idx + 1, layerFromTop: Math.min(nth, stack.length), layerCount: stack.length, exact: true };
+    }
     var r = removeFold(state, idx);
     if (r.error) return r;
     r.layerFromTop = Math.min(nth, stack.length);
@@ -531,7 +568,29 @@
   function replayOps(width, height, ops) {
     var st = create({ width: width, height: height });
     for (var i = 0; i < ops.length; i++) {
-      var r = applyOp(st, ops[i]);
+      var op = ops[i];
+      if (op.type === 'fold' && op.paperLine) {
+        // 用纸面坐标重新定位折线（删掉/跳过别的折之后仍然正确）
+        var mid = OG.lerp(op.paperLine[0], op.paperLine[1], 0.5);
+        var f = null;
+        for (var k = 0; k < st.facets.length; k++) {
+          if (!insidePoly(mid, st.facets[k].poly)) continue;
+          if (!f || st.facets[k].layer > f.layer) f = st.facets[k];   // 取最上面那层（和当初折的时候一致）
+        }
+        if (f) {
+          var pa2 = apply(f.T, op.paperLine[0]), pb2 = apply(f.T, op.paperLine[1]);
+          // 侧向：纸面符号 × 该纸片是否被镜像；再在图线上取一个很小的偏移点作为侧点
+          var want = (op.paperSideSign || 1) * (det(f.T) < 0 ? -1 : 1);
+          var mx = (pa2[0] + pb2[0]) / 2, my = (pa2[1] + pb2[1]) / 2;
+          var dx = pb2[0] - pa2[0], dy = pb2[1] - pa2[1], L = Math.hypot(dx, dy) || 1;
+          var nx = -dy / L, ny = dx / L;
+          var s1 = Math.sign(OG.orient(pa2, pb2, [mx + nx * 1e-3, my + ny * 1e-3])) || 1;
+          var sgnN = (s1 === want) ? 1 : -1;
+          var side = [mx + nx * 1e-3 * sgnN * L + dx / L * 1e-4, my + ny * 1e-3 * sgnN * L + dy / L * 1e-4];
+          op = { type: 'fold', a: pa2, b: pb2, side: side, kind: op.kind, scope: op.scope };
+        }
+      }
+      var r = applyOp(st, op);
       if (r.error) return { error: r.error };
       st = r.state;
     }

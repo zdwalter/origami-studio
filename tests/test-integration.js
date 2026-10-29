@@ -249,9 +249,10 @@ var fails = 0; function ok(c, m) { console.log((c ? 'ok   ' : 'FAIL ') + m); if 
              title: last && last.title, type: last && last.op.type };
   });
   ok(peel.tool === 'peel', '「打开某层」按钮切到点选模式');
-  ok(peel.ok && /掀开/.test(peel.title || ''), '点一下把该处最上面那一层掀开了（' + (peel.title || '') + '）');
-  ok(peel.type === 'fold', '掀开是一步可撤销的折叠步骤（type=' + peel.type + '）');
-  ok(peel.creases > peel.creases0, '掀开后折痕保留并在原有基础上增加（' + peel.creases0 + ' → ' + peel.creases + '）');
+  ok(peel.ok && /打开第/.test(peel.title || ''), '点一下打开了该处最上面那一层所在的折（' + (peel.title || '') + '）');
+  ok(peel.type === 'unfoldLayer', '「打开某层」记成一步（type=' + peel.type + '）');
+  ok(peel.creases >= peel.creases0, '打开某层后折痕保留（' + peel.creases0 + ' → ' + peel.creases + '）');
+  ok(peel.after < peel.before, '打开这一层所在的折后纸片回到折之前（' + peel.before + ' → ' + peel.after + ' 片）');
 
   ok(!logs.length, 'no console errors ' + logs.join(' | '));
   await browser.close();

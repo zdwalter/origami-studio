@@ -76,30 +76,36 @@
   P.flip = function () { this._userOp({ type: 'flip' }, '翻面', '把纸翻过来。'); };
   P.rotate = function (deg) { this._userOp({ type: 'rotate', deg: deg }, '旋转 ' + (deg > 0 ? '+' : '') + deg + '°', '在桌面上旋转纸张。'); };
   /**
-   * 点击处：把该处最上面那一层“掀开”（沿它自己的折线反向折一次），
-   * 再点一次就掀下面一层。掀开是可撤销的一步，折痕保留。
+   * 点击处：打开该处最上面那一层所在的折——效果是回到“折这一层之前”的样子。
+   * 引擎会把那一折从历史里去掉后按纸面坐标重放，所以后面的折、折痕都不受影响。
    */
   P.unfoldLayerAt = function (world) {
     var st0 = this.state();
     var facet = SF.facetAt(st0, world);
     if (!facet) { this.onStatus('这里没有纸'); return false; }
+    var paperPt = SF.affine.apply(SF.affine.invert(facet.T), world);
+    // 该处从最上层往下数第几层
     var layerFromTop = 1;
     st0.facets.forEach(function (f) {
-      if (f === facet) return;
-      if (OG.pointInPoly(world, f.poly.map(function (q) { return SF.affine.apply(f.T, q); })) && f.layer > facet.layer) layerFromTop++;
+      if (f === facet || f.layer <= facet.layer) return;
+      var P = f.poly.map(function (q) { return SF.affine.apply(f.T, q); });
+      if (OG.pointInPoly(world, P)) layerFromTop++;
     });
-    var probe = SF.peelLayer(st0, world);
-    if (probe.error) {
-      var r2 = SF.unfoldLayer(st0, SF.affine.apply(SF.affine.invert(facet.T), world), 1);
-      if (r2.error) { this.onStatus('⚠ ' + probe.error); return false; }
-      var n2 = this.steps.filter(function (x) { return x.user; }).length + 1;
-      return this._userOp({ type: 'unfoldLayer', point: SF.affine.apply(SF.affine.invert(facet.T), world), nth: 1 },
-        '打开第 1 层（第 ' + n2 + ' 次自定义）', '打开这一层所在的折，折痕保留');
-    }
+    var probe = SF.unfoldLayer(st0, paperPt, 1);
+    if (probe.error) { this.onStatus('⚠ ' + probe.error); return false; }
     var n = this.steps.filter(function (x) { return x.user; }).length + 1;
-    this.onStatus('把第 ' + layerFromTop + ' 层掀开了（沿它自己的折线折回）');
-    return this._userOp(probe.op, '掀开第 ' + layerFromTop + ' 层（第 ' + n + ' 次自定义）',
-      '沿这一层自己的折线把它反向折开，露出下面一层；折痕保留，可撤销');
+    // 折叠序号 → 步骤号（教程里“第 8 步”这种）
+    var stepNo = 0, ord = 0;
+    this.steps.forEach(function (st2, i) {
+      var t = st2.op && st2.op.type;
+      if (t === 'fold' || t === 'crease') ord++;
+      if (ord === probe.foldNo) stepNo = i + 1;
+    });
+    var where = stepNo ? ('第 ' + stepNo + ' 步') : ('第 ' + probe.foldNo + ' 折');
+    this.onStatus('打开了' + where + '折的那一折，回到折之前的样子（折痕保留）');
+    return this._userOp({ type: 'unfoldLayer', point: paperPt, nth: 1 },
+      '打开第 ' + layerFromTop + ' 层（' + where + '）（第 ' + n + ' 次自定义）',
+      '打开' + where + '折的那一折，回到折之前的样子；折痕保留');
   };
 
   P.setTool = function (t) { this.tool = t; this.ui = { mode: 'idle' }; this.dirty = true; this.onStatus(this._hint()); this.canvas.style.cursor = t === 'pan' ? 'grab' : 'crosshair'; };
