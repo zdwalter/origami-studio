@@ -132,7 +132,9 @@
     var lineIdx = [];
     if (mesh.lineIdx && mesh.lineIdx.length) lineIdx = mesh.lineIdx.slice();      // 折叠树直接生成的模型自带折痕线
     else mesh.edges.forEach(function (e) { if (e.line) lineIdx.push([e.n[0], e.n[1], e.type]); });
-    return { positions: solver.positions, uvs: uvs, indices: idx, lineIdx: lineIdx };
+    var out = { positions: solver.positions, uvs: uvs, indices: idx, lineIdx: lineIdx };
+    if (mesh.bias) out.bias = mesh.bias;      // 折叠树模型：叠层深度偏置（几何不偏移）
+    return out;
   }
 
   /** (Re)build mesh + solver for the current document. keepFold: continue folding from current percentage. */

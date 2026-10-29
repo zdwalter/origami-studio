@@ -747,17 +747,11 @@
       var pose = poseAt(fp); lastPose = pose;
       var k = 0, fi = 0;
       // threeDPose 的 polys 顺序与 flat.facets 一致（都是 applyOp 重放的结果）
-      var EPS_LAYER = Math.min(width, height) * 0.0012;   // 每层微移一点，防止共面闪烁
       for (fi = 0; fi < pose.polys.length; fi++) {
-        var polyP = pose.polys[fi];
-        var pts = polyP.pts;
+        var pts = pose.polys[fi].pts;
         if (reversed[fi]) pts = pts.slice().reverse();
-        var nrm = polyP.front || [0, 0, 1];
-        var off = (polyP.layer || 0) * EPS_LAYER;
         for (var i = 0; i < pts.length && k < n; i++) {
-          positions[k * 3] = pts[i][0] + nrm[0] * off;
-          positions[k * 3 + 1] = pts[i][1] + nrm[1] * off;
-          positions[k * 3 + 2] = pts[i][2] + nrm[2] * off;
+          positions[k * 3] = pts[i][0]; positions[k * 3 + 1] = pts[i][1]; positions[k * 3 + 2] = pts[i][2];
           k++;
         }
       }
@@ -765,8 +759,23 @@
     }
     applyPose(1);
 
+    // 深度偏置：叠在一起的层几何完全贴合，靠顶点深度偏置决定谁盖住谁（层号越大越靠前）
+    var bias = new Float32Array(n);
+    (function () {
+      var flatF = create({ width: width, height: height });
+      steps.forEach(function (st) { var rr = applyOp(flatF, st.op); if (!rr.error) flatF = rr.state; });
+      var maxLayer = 1;
+      flatF.facets.forEach(function (f) { maxLayer = Math.max(maxLayer, f.layer); });
+      var base = 0, fi2 = 0;
+      flatF.facets.forEach(function (f) {
+        var cnt = f.poly.length;
+        var b2 = -(f.layer / maxLayer) * 3e-4;      // 上层的 z 更小 → 深度测试时优先
+        for (var i2 = 0; i2 < cnt && base + i2 < n; i2++) bias[base + i2] = b2;
+        base += cnt;
+      });
+    })();
     var mesh = {
-      width: width, height: height, nodes2d: nodes2d, tris: tris, edges: [], hinges: [], warnings: [],
+      width: width, height: height, nodes2d: nodes2d, tris: tris, edges: [], hinges: [], warnings: [], bias: bias,
       lineIdx: lineIdxData.map(function (l) { return [l[0], l[1], l[2]]; })
     };
     var model = {

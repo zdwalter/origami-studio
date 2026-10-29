@@ -10,10 +10,11 @@
   var M4 = global.OG.M4, V3 = global.OG.V3;
 
   var VS = [
-    'attribute vec3 aPos; attribute vec3 aNrm; attribute vec2 aUV; attribute vec3 aCol;',
+    'attribute vec3 aPos; attribute vec3 aNrm; attribute vec2 aUV; attribute vec3 aCol; attribute float aBias;',
     'uniform mat4 uMVP; uniform mat4 uModel;',
     'varying vec3 vNrm; varying vec2 vUV; varying vec3 vCol; varying vec3 vWorld;',
-    'void main(){ vec4 w = uModel*vec4(aPos,1.0); vWorld=w.xyz; vNrm=mat3(uModel)*aNrm; vUV=aUV; vCol=aCol; gl_Position=uMVP*vec4(aPos,1.0);}'
+    'void main(){ vec4 w = uModel*vec4(aPos,1.0); vWorld=w.xyz; vNrm=mat3(uModel)*aNrm; vUV=aUV; vCol=aCol;',
+    '  gl_Position=uMVP*vec4(aPos,1.0); gl_Position.z += aBias * gl_Position.w; }'
   ].join('\n');
   var FS = [
     'precision highp float;',
@@ -130,6 +131,12 @@
     gl.bindBuffer(gl.ARRAY_BUFFER, this.buf.uv); gl.bufferData(gl.ARRAY_BUFFER, mesh.uvs, gl.STATIC_DRAW);
     this.colors = mesh.colors || new Float32Array(nv * 3);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.buf.col); gl.bufferData(gl.ARRAY_BUFFER, this.colors, gl.DYNAMIC_DRAW);
+    // 每顶点的深度偏置：叠在一起的层靠它分出前后，几何本身不动
+    this.nBias = nv;
+    this.biasArr = mesh.bias && mesh.bias.length === nv ? mesh.bias : new Float32Array(nv);
+    this.buf.bias = this.buf.bias || gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.buf.bias); gl.bufferData(gl.ARRAY_BUFFER, this.biasArr, gl.STATIC_DRAW);
+    this.fBias = null;
     var idx = this.uint ? new Uint32Array(mesh.indices) : new Uint16Array(mesh.indices);
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.buf.idx); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, idx, gl.STATIC_DRAW);
     this.nIdx = idx.length;
@@ -195,9 +202,15 @@
     if (!this.fPos || this.fPos.length !== n * 3) {
       this.fPos = new Float32Array(n * 3); this.fNrm = new Float32Array(n * 3); this.fUV = new Float32Array(n * 2); this.fCol = new Float32Array(n * 3);
       var uv = this.mesh.uvs;
-      for (var i = 0; i < n; i++) { this.fUV[i * 2] = uv[I[i] * 2]; this.fUV[i * 2 + 1] = uv[I[i] * 2 + 1]; }
-      this.fBuf = this.fBuf || { pos: gl.createBuffer(), nrm: gl.createBuffer(), uv: gl.createBuffer(), col: gl.createBuffer() };
+      this.fBias = new Float32Array(n);
+      var biasSrc = this.biasArr || [];
+      for (var i = 0; i < n; i++) {
+        this.fUV[i * 2] = uv[I[i] * 2]; this.fUV[i * 2 + 1] = uv[I[i] * 2 + 1];
+        this.fBias[i] = biasSrc[I[i]] || 0;
+      }
+      this.fBuf = this.fBuf || { pos: gl.createBuffer(), nrm: gl.createBuffer(), uv: gl.createBuffer(), col: gl.createBuffer(), bias: gl.createBuffer() };
       gl.bindBuffer(gl.ARRAY_BUFFER, this.fBuf.uv); gl.bufferData(gl.ARRAY_BUFFER, this.fUV, gl.STATIC_DRAW);
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.fBuf.bias); gl.bufferData(gl.ARRAY_BUFFER, this.fBias, gl.STATIC_DRAW);
       this._flatColors();
     }
     var P = this.fPos, N = this.fNrm;
@@ -342,12 +355,14 @@
       gl.bindBuffer(gl.ARRAY_BUFFER, this.fBuf.nrm); this._attr(pp, 'aNrm', 3);
       gl.bindBuffer(gl.ARRAY_BUFFER, this.fBuf.uv); this._attr(pp, 'aUV', 2);
       gl.bindBuffer(gl.ARRAY_BUFFER, this.fBuf.col); this._attr(pp, 'aCol', 3);
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.fBuf.bias); this._attr(pp, 'aBias', 1);
       gl.drawArrays(gl.TRIANGLES, 0, this.nIdx);
     } else {
       gl.bindBuffer(gl.ARRAY_BUFFER, this.buf.pos); this._attr(pp, 'aPos', 3);
       gl.bindBuffer(gl.ARRAY_BUFFER, this.buf.nrm); this._attr(pp, 'aNrm', 3);
       gl.bindBuffer(gl.ARRAY_BUFFER, this.buf.uv); this._attr(pp, 'aUV', 2);
       gl.bindBuffer(gl.ARRAY_BUFFER, this.buf.col); this._attr(pp, 'aCol', 3);
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.buf.bias); this._attr(pp, 'aBias', 1);
       gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.buf.idx);
       gl.drawElements(gl.TRIANGLES, this.nIdx, this.uint ? gl.UNSIGNED_INT : gl.UNSIGNED_SHORT, 0);
     }
