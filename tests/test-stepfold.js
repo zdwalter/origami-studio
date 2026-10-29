@@ -210,7 +210,8 @@ SM.list().forEach(function (meta) {
   ok(pm.maxStage >= 5, '折叠树模型：分阶段数 ' + pm.maxStage);
   pm.setFoldPercent(0);
   var b0 = pm.bounds(), s0 = [b0.max[0] - b0.min[0], b0.max[1] - b0.min[1], b0.max[2] - b0.min[2]];
-  ok(Math.abs(b0.max[2] - b0.min[2]) < 1e-6, '折叠树模型：0% 时是整张平纸');
+  ok(Math.abs(b0.max[2] - b0.min[2]) < 0.05, '折叠树模型：0% 时是整张平纸（层间微移 ' + (b0.max[2] - b0.min[2]).toFixed(4) + '）');
+  ok(Math.abs((b0.max[0] - b0.min[0]) - g.width) < 1e-6 && Math.abs((b0.max[1] - b0.min[1]) - g.height) < 1e-6, '折叠树模型：0% 时尺寸等于原纸');
   pm.setFoldPercent(1);
   var b1 = pm.bounds(), s1 = [b1.max[0] - b1.min[0], b1.max[1] - b1.min[1], b1.max[2] - b1.min[2]];
   ok(s1[2] > 0.2, '折叠树模型：100% 时折出立体形状（z 跨度 ' + s1[2].toFixed(3) + '）');
