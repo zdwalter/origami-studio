@@ -820,6 +820,15 @@
     $('stRotR').addEventListener('click', function () { if (S.stepView) S.stepView.rotate(45); });
     $('stReset').addEventListener('click', function () { if (S.stepView) { $('stepModelSel').value = ''; S.stepView.reset(1, 1); $('stepModelDesc').textContent = ''; renderStepList(); } });
     $('stTo3D').addEventListener('click', stepTo3D);
+    $('stUnfoldAll').addEventListener('click', function () {
+      if (!S.stepView) return;
+      if (S.stepView.show3d) { S.stepView.set3D(false); this.classList.remove('primary'); $('st3D').classList.remove('primary'); $('st3D').textContent = '3D 展开展示'; }
+      if (S.stepView.unfoldAll()) toast('已展开铺平，折痕都留在纸上（用「导出 → 项目文件」可以存成折痕图）');
+    });
+    $('stUnfoldOne').addEventListener('click', function () {
+      if (!S.stepView) return;
+      if (S.stepView.unfoldOne()) toast('已打开上一折，折痕保留');
+    });
     $('stAngle').addEventListener('change', function () {
       if (!S.stepView) return;
       var deg = S.stepView.setFoldAngle(+this.value);

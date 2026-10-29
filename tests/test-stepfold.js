@@ -120,5 +120,26 @@ SM.list().forEach(function (meta) {
   // 折角写在 fold 操作里（op.angle）也生效
   ok(g.steps.filter(function (s) { return s.op.angle === 90; }).length === 2, '滑翔机两侧机翼记录折角 90°（op.angle）');
 })();
+
+// ---- 展开复原：几何回到整张纸，折痕全部留下
+(function () {
+  var g = SM.get('glider'), st = SF.create({ width: g.width, height: g.height });
+  for (var i = 0; i < 6; i++) st = SF.applyOp(st, g.steps[i].op).state;
+  ok(st.facets.length > 1, '展开复原：先折出多层（' + st.facets.length + ' 片）');
+  var nCrease = st.creases.length;
+  var r = SF.applyOp(st, { type: 'unfoldAll' });
+  ok(!r.error && r.state.facets.length === 1, '展开复原：几何回到整张纸');
+  ok(r.state.creases.length === nCrease, '展开复原：折痕数量不变（' + nCrease + ' 条）');
+  ok(r.state.creases.every(function (c) { return c.angle === 0; }), '展开复原：折痕角度归 0（只是折痕，不是折起的角）');
+  var cp = SF.creasePattern(r.state, 't');
+  ok(cp.lines.filter(function (l) { return l.type === 'M' || l.type === 'V'; }).length === nCrease, '展开复原：折痕图里能看到全部折痕');
+  ok(Math.abs(SF.bounds(r.state).width - g.width) < 1e-9, '展开复原：纸张尺寸回到原样');
+  // 打开上一折
+  var st2 = SF.create({ width: 1, height: 1 });
+  st2 = SF.applyOp(st2, { type: 'fold', a: [0.5, 0], b: [0.5, 1], side: [0.2, 0.5], kind: 'valley' }).state;
+  ok(st2.facets.length === 2, '打开上一折：先折一次得到两层');
+  var r2 = SF.applyOp(st2, { type: 'unfold' });
+  ok(!r2.error && r2.state.facets.length === 1 && r2.state.creases.length === 1, '打开上一折：几何复原但折痕保留');
+})();
 console.log(passes + ' passed, ' + fails + ' failed');
 process.exit(fails ? 1 : 0);

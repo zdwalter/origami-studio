@@ -448,6 +448,8 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
               <option value="120">120°</option><option value="90">90°</option><option value="60">60°</option><option value="45">45°</option>
             </select>
           </label>
+          <button class="btn sm" id="stUnfoldAll" title="把纸重新打开铺平，折痕全部留下（可撤销）">展开复原</button>
+          <button class="btn sm" id="stUnfoldOne" title="只打开最近折的那一下，折痕保留">打开上一折</button>
           <button class="btn sm" id="st3D" title="把折好的成品按折角展开成三维姿态（可拖动旋转）">3D 展开展示</button>
           <button class="btn primary sm" id="stTo3D" title="把当前折出的所有折痕发送到 3D 仿真">折痕 → 3D 仿真</button>
         </div>
@@ -559,6 +561,7 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
           <p><b>折痕设计</b>：在 2D 折痕图编辑器中绘制山折（红）、谷折（蓝）、平面线、自由铰链、剪切线，右侧实时 3D 预览；编辑器会检查每个内部顶点是否满足平折条件。</p>
           <p><b>分步折叠</b>：像折真纸一样一步步折：画折线、点到点、边到边，可翻面/旋转，跟随教程完成纸飞机、纸船等作品，并可把折痕发送到 3D 仿真。</p>
           <p><b>3D 展开展示</b>：折完的作品（如纸飞机、滑翔机）点工具栏「3D 展开展示」，会把折好的成品按三维姿态展开（机翼张开、机身撑起），可以拖动旋转看各个角度；再点一次回到平面。</p>
+          <p><b>展开复原 / 打开上一折</b>：折过之后点「展开复原」，纸会重新铺平，但折痕全部留在纸上（可以作为折痕图导出、发送到 3D 仿真）；「打开上一折」只把最近折的那一下打开，折痕同样保留。两个操作都记成一步，可以撤销。</p>
           <p><b>折角</b>：工具栏的「折角」可以选择这一折折多少度——180° 是常规的折平，90° 是折到与纸面垂直，60° 是只折 60°。折角会记在这一步里，成品用「3D 展开展示」按这个角度展开；平面视图仍按折平显示（层序和折痕计算需要平面状态）。</p>
         </section>
         <section>
@@ -5394,6 +5397,16 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
     return { state: s };
   }
 
+  /** 完全复原（展开）：几何回到整张平纸，折痕全部保留下来（对应「展开看折痕图」） */
+  function unfoldAll(state) {
+    var s = clone(state);
+    var w = s.width, h = s.height;
+    s.facets = [{ id: 0, poly: [[0, 0], [w, 0], [w, h], [0, h]], T: I(), layer: 0 }];
+    s.snaps = [];
+    s.creases = s.creases.map(function (c) { return { a: c.a, b: c.b, type: c.type, angle: 0 }; });
+    return { state: s };
+  }
+
   function flip(state) {
     var s = clone(state), c = bounds(s).center, M = mirrorX(c[0]);
     s.snaps = [];                    // 折叠平面一变，快照就失效
@@ -5413,6 +5426,7 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
     if (op.type === 'rotate') return { state: rotate(state, op.deg || 0) };
     if (op.type === 'crease') return crease(state, op);
     if (op.type === 'unfold') return unfold(state);
+    if (op.type === 'unfoldAll') return unfoldAll(state);
     return fold(state, op);
   }
 
@@ -5579,7 +5593,7 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
   }
 
   global.StepFold = {
-    create: create, clone: clone, fold: fold, crease: crease, unfold: unfold, flip: flip, rotate: rotate, applyOp: applyOp, bounds: bounds, hitFacet: hitFacet,
+    create: create, clone: clone, fold: fold, crease: crease, unfold: unfold, unfoldAll: unfoldAll, flip: flip, rotate: rotate, applyOp: applyOp, bounds: bounds, hitFacet: hitFacet,
     lineFromPoints: lineFromPoints, pointToPoint: pointToPoint, edgeToEdge: edgeToEdge,
     visibleFaces: visibleFaces, outlineEdges: outlineEdges, snapPoints: snapPoints, totalArea: totalArea,
     creasePattern: creasePattern, threeDPose: threeDPose, serialize: serialize, deserialize: deserialize,
@@ -5835,6 +5849,19 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
   P.setKind = function (k) { this.kind = k === 'mountain' ? 'mountain' : 'valley'; this._invalidatePreview(); };
   P.setScope = function (s) { this.scope = s; this._invalidatePreview(); };
   P.setPaperColors = function (f, b) { this.front = hexRgb(f); this.back = hexRgb(b); this.dirty = true; };
+  /** 展开复原：纸回到整张平面，折痕全部留下（记成一步，可撤销） */
+  P.unfoldAll = function () {
+    var st = this.state();
+    if (!st.creases || !st.creases.length) { this.onStatus('还没有折过，展开后不会留下折痕'); return false; }
+    return this._userOp({ type: 'unfoldAll' }, '展开复原', '把纸重新打开铺平，保留折痕（共 ' + st.creases.length + ' 条）');
+  };
+  /** 打开上一折（几何复原一步，折痕保留） */
+  P.unfoldOne = function () {
+    var st = this.state();
+    if (!st.snaps || !st.snaps.length) { this.onStatus('没有可以打开的折了（翻面后的折需要用「展开复原」）'); return false; }
+    return this._userOp({ type: 'unfold' }, '打开上一折', '把最近折的那一下打开，折痕保留');
+  };
+
   /** 手动指定展开角度（null = 用模型自带的角度） */
   P.setDisplayAngle = function (deg) { this.angleOverride = (deg === null || deg === undefined) ? null : +deg; this.dirty = true; };
 
@@ -5940,6 +5967,7 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
     if (op.type === 'flip') { var c = SF.bounds(before).center; return { type: 'flip', a: [c[0], c[1] - 1], b: [c[0], c[1] + 1], kind: 'valley', moved: 'all' }; }
     if (op.type === 'crease') return { type: 'crease', a: op.a, b: op.b, kind: op.kind, moved: r.moved };
     if (op.type === 'unfold') return { type: 'instant' };
+    if (op.type === 'unfoldAll') return { type: 'instant' };
     return { type: 'rotate', deg: op.deg, center: SF.bounds(before).center };
   };
   P._userOp = function (op, title, desc) {
@@ -6107,7 +6135,7 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
         ctx.beginPath();
         var T = d.face.T;
         creases.forEach(function (c) { var p = self.toScreen(SF.affine.apply(T, c.a)), q = self.toScreen(SF.affine.apply(T, c.b)); ctx.moveTo(p[0], p[1]); ctx.lineTo(q[0], q[1]); });
-        ctx.strokeStyle = 'rgba(0,0,0,0.13)'; ctx.lineWidth = 1; ctx.stroke();
+        ctx.strokeStyle = 'rgba(0,0,0,0.30)'; ctx.lineWidth = 1.2; ctx.stroke();
       }
       ctx.restore();
       ctx.beginPath(); d.pts.forEach(function (p, i) { if (i) ctx.lineTo(p[0], p[1]); else ctx.moveTo(p[0], p[1]); }); ctx.closePath();
@@ -7209,6 +7237,15 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
     $('stRotR').addEventListener('click', function () { if (S.stepView) S.stepView.rotate(45); });
     $('stReset').addEventListener('click', function () { if (S.stepView) { $('stepModelSel').value = ''; S.stepView.reset(1, 1); $('stepModelDesc').textContent = ''; renderStepList(); } });
     $('stTo3D').addEventListener('click', stepTo3D);
+    $('stUnfoldAll').addEventListener('click', function () {
+      if (!S.stepView) return;
+      if (S.stepView.show3d) { S.stepView.set3D(false); this.classList.remove('primary'); $('st3D').classList.remove('primary'); $('st3D').textContent = '3D 展开展示'; }
+      if (S.stepView.unfoldAll()) toast('已展开铺平，折痕都留在纸上（用「导出 → 项目文件」可以存成折痕图）');
+    });
+    $('stUnfoldOne').addEventListener('click', function () {
+      if (!S.stepView) return;
+      if (S.stepView.unfoldOne()) toast('已打开上一折，折痕保留');
+    });
     $('stAngle').addEventListener('change', function () {
       if (!S.stepView) return;
       var deg = S.stepView.setFoldAngle(+this.value);

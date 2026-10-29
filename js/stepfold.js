@@ -370,6 +370,16 @@
     return { state: s };
   }
 
+  /** 完全复原（展开）：几何回到整张平纸，折痕全部保留下来（对应「展开看折痕图」） */
+  function unfoldAll(state) {
+    var s = clone(state);
+    var w = s.width, h = s.height;
+    s.facets = [{ id: 0, poly: [[0, 0], [w, 0], [w, h], [0, h]], T: I(), layer: 0 }];
+    s.snaps = [];
+    s.creases = s.creases.map(function (c) { return { a: c.a, b: c.b, type: c.type, angle: 0 }; });
+    return { state: s };
+  }
+
   function flip(state) {
     var s = clone(state), c = bounds(s).center, M = mirrorX(c[0]);
     s.snaps = [];                    // 折叠平面一变，快照就失效
@@ -389,6 +399,7 @@
     if (op.type === 'rotate') return { state: rotate(state, op.deg || 0) };
     if (op.type === 'crease') return crease(state, op);
     if (op.type === 'unfold') return unfold(state);
+    if (op.type === 'unfoldAll') return unfoldAll(state);
     return fold(state, op);
   }
 
@@ -555,7 +566,7 @@
   }
 
   global.StepFold = {
-    create: create, clone: clone, fold: fold, crease: crease, unfold: unfold, flip: flip, rotate: rotate, applyOp: applyOp, bounds: bounds, hitFacet: hitFacet,
+    create: create, clone: clone, fold: fold, crease: crease, unfold: unfold, unfoldAll: unfoldAll, flip: flip, rotate: rotate, applyOp: applyOp, bounds: bounds, hitFacet: hitFacet,
     lineFromPoints: lineFromPoints, pointToPoint: pointToPoint, edgeToEdge: edgeToEdge,
     visibleFaces: visibleFaces, outlineEdges: outlineEdges, snapPoints: snapPoints, totalArea: totalArea,
     creasePattern: creasePattern, threeDPose: threeDPose, serialize: serialize, deserialize: deserialize,

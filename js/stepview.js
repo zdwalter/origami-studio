@@ -78,6 +78,19 @@
   P.setKind = function (k) { this.kind = k === 'mountain' ? 'mountain' : 'valley'; this._invalidatePreview(); };
   P.setScope = function (s) { this.scope = s; this._invalidatePreview(); };
   P.setPaperColors = function (f, b) { this.front = hexRgb(f); this.back = hexRgb(b); this.dirty = true; };
+  /** 展开复原：纸回到整张平面，折痕全部留下（记成一步，可撤销） */
+  P.unfoldAll = function () {
+    var st = this.state();
+    if (!st.creases || !st.creases.length) { this.onStatus('还没有折过，展开后不会留下折痕'); return false; }
+    return this._userOp({ type: 'unfoldAll' }, '展开复原', '把纸重新打开铺平，保留折痕（共 ' + st.creases.length + ' 条）');
+  };
+  /** 打开上一折（几何复原一步，折痕保留） */
+  P.unfoldOne = function () {
+    var st = this.state();
+    if (!st.snaps || !st.snaps.length) { this.onStatus('没有可以打开的折了（翻面后的折需要用「展开复原」）'); return false; }
+    return this._userOp({ type: 'unfold' }, '打开上一折', '把最近折的那一下打开，折痕保留');
+  };
+
   /** 手动指定展开角度（null = 用模型自带的角度） */
   P.setDisplayAngle = function (deg) { this.angleOverride = (deg === null || deg === undefined) ? null : +deg; this.dirty = true; };
 
@@ -183,6 +196,7 @@
     if (op.type === 'flip') { var c = SF.bounds(before).center; return { type: 'flip', a: [c[0], c[1] - 1], b: [c[0], c[1] + 1], kind: 'valley', moved: 'all' }; }
     if (op.type === 'crease') return { type: 'crease', a: op.a, b: op.b, kind: op.kind, moved: r.moved };
     if (op.type === 'unfold') return { type: 'instant' };
+    if (op.type === 'unfoldAll') return { type: 'instant' };
     return { type: 'rotate', deg: op.deg, center: SF.bounds(before).center };
   };
   P._userOp = function (op, title, desc) {
@@ -350,7 +364,7 @@
         ctx.beginPath();
         var T = d.face.T;
         creases.forEach(function (c) { var p = self.toScreen(SF.affine.apply(T, c.a)), q = self.toScreen(SF.affine.apply(T, c.b)); ctx.moveTo(p[0], p[1]); ctx.lineTo(q[0], q[1]); });
-        ctx.strokeStyle = 'rgba(0,0,0,0.13)'; ctx.lineWidth = 1; ctx.stroke();
+        ctx.strokeStyle = 'rgba(0,0,0,0.30)'; ctx.lineWidth = 1.2; ctx.stroke();
       }
       ctx.restore();
       ctx.beginPath(); d.pts.forEach(function (p, i) { if (i) ctx.lineTo(p[0], p[1]); else ctx.moveTo(p[0], p[1]); }); ctx.closePath();
