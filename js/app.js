@@ -151,6 +151,8 @@
     if (!mesh.tris.length) { toast('折痕图没有可用的面', true); return; }
     S.mesh = mesh;
     S.poseModel = null;                          // 换回普通文档时清掉折叠树模型
+    if ($('cpCard')) $('cpCard').hidden = false;
+    if ($('poseCard')) $('poseCard').hidden = true;
     if (S.renderer) S.renderer.fixedColors = false;
     S.solver = new OrigamiSolver(mesh, S.sim);
     // 多层紧贴的图案（菱形筒、同心圆褶）：开了自碰撞会把几十层纸顶开、把形状撑变形，这里临时关掉
@@ -622,7 +624,12 @@
       S.renderer.fixedColors = false;         // 正/反面按纸片真实朝向着色，和平面视图同一套规则
       S.renderer.fit(false);
     }
-    updateInfo(); updateCPPanel(); renderParams();
+    if ($('cpCard')) $('cpCard').hidden = true;          // 分步成品：不显示折痕图卡片（那是另一套路径）
+    if ($('poseCard')) {
+      $('poseCard').hidden = false;
+      $('poseInfo').textContent = '共 ' + steps.length + ' 步 · ' + pm.mesh.tris.length + ' 个三角形 · 拖动「折叠程度」按顺序折';
+    }
+    updateInfo(); renderParams();
     setTarget(1);
     toast('已成 3D 模型：按折叠顺序一道一道折（拖「折叠程度」回看每一步）');
   }

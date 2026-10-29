@@ -509,10 +509,15 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
 
       <!-- sim / design panel -->
       <div class="sim-panel" id="simPanel">
-        <section class="card cp-card">
+        <section class="card cp-card" id="cpCard">
           <h3>折痕图 <small class="muted" id="cpStats"></small></h3>
           <canvas id="cpThumb" class="cp-thumb" title="点击进入折痕设计"></canvas>
           <div class="validation" id="validation"></div>
+        </section>
+        <section class="card" id="poseCard" hidden>
+          <h3>分步折叠成品</h3>
+          <p class="muted small" id="poseInfo"></p>
+          <p class="muted small">这个 3D 模型是<b>按折叠树直接生成</b>的：拖动下方「折叠程度」会一道一道折起来，不会出现折痕图重建的错位。</p>
         </section>
         <section class="card" id="paramCard" hidden>
           <h3>图案参数</h3>
@@ -6913,6 +6918,8 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
     if (!mesh.tris.length) { toast('折痕图没有可用的面', true); return; }
     S.mesh = mesh;
     S.poseModel = null;                          // 换回普通文档时清掉折叠树模型
+    if ($('cpCard')) $('cpCard').hidden = false;
+    if ($('poseCard')) $('poseCard').hidden = true;
     if (S.renderer) S.renderer.fixedColors = false;
     S.solver = new OrigamiSolver(mesh, S.sim);
     // 多层紧贴的图案（菱形筒、同心圆褶）：开了自碰撞会把几十层纸顶开、把形状撑变形，这里临时关掉
@@ -7384,7 +7391,12 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
       S.renderer.fixedColors = false;         // 正/反面按纸片真实朝向着色，和平面视图同一套规则
       S.renderer.fit(false);
     }
-    updateInfo(); updateCPPanel(); renderParams();
+    if ($('cpCard')) $('cpCard').hidden = true;          // 分步成品：不显示折痕图卡片（那是另一套路径）
+    if ($('poseCard')) {
+      $('poseCard').hidden = false;
+      $('poseInfo').textContent = '共 ' + steps.length + ' 步 · ' + pm.mesh.tris.length + ' 个三角形 · 拖动「折叠程度」按顺序折';
+    }
+    updateInfo(); renderParams();
     setTarget(1);
     toast('已成 3D 模型：按折叠顺序一道一道折（拖「折叠程度」回看每一步）');
   }

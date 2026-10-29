@@ -247,10 +247,15 @@
 
       <!-- sim / design panel -->
       <div class="sim-panel" id="simPanel">
-        <section class="card cp-card">
+        <section class="card cp-card" id="cpCard">
           <h3>折痕图 <small class="muted" id="cpStats"></small></h3>
           <canvas id="cpThumb" class="cp-thumb" title="点击进入折痕设计"></canvas>
           <div class="validation" id="validation"></div>
+        </section>
+        <section class="card" id="poseCard" hidden>
+          <h3>分步折叠成品</h3>
+          <p class="muted small" id="poseInfo"></p>
+          <p class="muted small">这个 3D 模型是<b>按折叠树直接生成</b>的：拖动下方「折叠程度」会一道一道折起来，不会出现折痕图重建的错位。</p>
         </section>
         <section class="card" id="paramCard" hidden>
           <h3>图案参数</h3>
