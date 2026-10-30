@@ -550,6 +550,36 @@ var fails = 0; function ok(c, m) { console.log((c ? 'ok   ' : 'FAIL ') + m); if 
   ok(axisSnap.farAxis === null, '偏得太多时不会硬拉成水平/垂直');
   ok(axisSnap.ortho === 'h' && axisSnap.dx < 1e-9 && axisSnap.dy > 0.1, '两点对齐成水平 → 折痕正好垂直（dx=' + (axisSnap.dx || 0).toFixed(9) + '）');
 
+  // 24. 「插入基本型」：水雷基本型一键折好，之后可继续折
+  var baseIns = await page.evaluate(async function () {
+    var OS = window.OrigamiStudio, v = OS.stepView;
+    window.confirm = function () { return true; };
+    document.querySelector('.mode-tab[data-mode="step"]').click();
+    await new Promise(function (r) { setTimeout(r, 200); });
+    v.reset(1, 1);
+    document.getElementById('stBase').click();
+    await new Promise(function (r) { setTimeout(r, 200); });
+    var menu = document.getElementById('baseMenu');
+    var menuShown = menu && !menu.hidden;
+    var btn = document.querySelector('#baseMenu [data-base="waterbomb"]');
+    var names = Array.prototype.map.call(document.querySelectorAll('#baseMenu [data-base]'), function (x) { return x.getAttribute('data-base'); });
+    if (btn) btn.click();
+    await new Promise(function (r) { setTimeout(r, 700); });
+    if (v.anim) v._finishAnim();
+    var st = v.state();
+    return {
+      menuShown: menuShown, names: names,
+      steps: v.getSteps().length,
+      facets: st.facets.length,
+      paper: st.width + 'x' + st.height,
+      area: +window.StepFold.totalArea(st).toFixed(6),
+      titles: v.getSteps().map(function (s) { return s.title; })
+    };
+  });
+  ok(baseIns.menuShown && baseIns.names.indexOf('waterbomb') >= 0, '「插入基本型」菜单里有水雷基本型（' + (baseIns.names || []).join(',') + '）');
+  ok(baseIns.steps === 4 && baseIns.facets === 4, '插入后自动折好 4 步、得到四层三角形（' + baseIns.steps + ' 步 / ' + baseIns.facets + ' 片）');
+  ok(baseIns.paper === '1x1' && Math.abs(baseIns.area - 1) < 1e-6, '基本型用的是正方形纸且面积守恒（' + baseIns.paper + ' / ' + baseIns.area + '）');
+
   ok(!logs.length, 'no console errors ' + logs.join(' | '));
   await browser.close();
   console.log(fails ? fails + ' FAILED' : 'ALL OK');

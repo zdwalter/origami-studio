@@ -389,6 +389,35 @@
     var st = this.history.length ? this.history[this.history.length - 1] : this.state();
     return SF.creasePattern(st, this.model ? this.model.name + ' 折痕' : '分步折叠折痕');
   };
+  /**
+   * 插入一个“基本型”：清空当前纸，按基本型的步骤折好，之后可以在它上面继续折。
+   * 已有步骤时先问一下（会覆盖），因为基本型必须从整张纸开始。
+   */
+  P.insertBase = function (base) {
+    if (!base || !base.steps || !base.steps.length) return false;
+    if (this.steps.length) {
+      var n = this.steps.length;
+      if (!window.confirm('当前已有 ' + n + ' 步。插入基本型会清空这些步骤，从整张纸重新折。要继续吗？')) return false;
+    }
+    if (this.anim) this._finishAnim();
+    var w = base.width || 1, h = base.height || 1;
+    this.reset(w, h);
+    var s = this.history[0];
+    for (var i = 0; i < base.steps.length; i++) {
+      var st = base.steps[i], r = SF.applyOp(s, st.op);
+      if (r.error) { this.onStatus('⚠ 基本型第 ' + (i + 1) + ' 步折不出来：' + r.error); return false; }
+      this.history.push(r.state);
+      this.steps.push({ title: st.title, description: st.description, op: st.op, user: true });
+      this.meta.push(this._metaFor(st.op, s, r));
+      s = r.state;
+    }
+    this.pos = this.history.length - 1;
+    this._fit(true);
+    this._changed();
+    this.onStatus('已插入「' + base.name + '」：共 ' + base.steps.length + ' 步，可以接着往下折');
+    return true;
+  };
+
   /** 把一张折痕图作为“参考折痕”载入当前状态：只画在纸上（角度 0），方便一条条点着折 */
   P.setGuideCreases = function (doc) {
     if (!doc || !doc.lines || !doc.lines.length) return 0;

@@ -257,7 +257,38 @@
     });
   })();
 
+  // ---------------------------------------------------------------- 基本型（可以插入到分步折叠里当前后继续折）
+  // 引擎只会“平折”，所以水雷基本型用两次对折得到同样的四层三角形（和 Delta 教程开头一样）。
+  var bases = [
+    {
+      id: 'waterbomb', name: '水雷基本型（双三角）',
+      description: '两条对角线压痕 → 沿一条对角线对折 → 再对折成四层三角（尖朝右）',
+      width: 1, height: 1,
+      steps: [
+        { title: '压出对角线', description: '沿一条对角线压出折痕再展开。', op: { type: 'crease', a: [0, 0], b: [1, 1], side: [0.85, 0.15], kind: 'valley', scope: 'all' } },
+        { title: '压出另一条对角线', description: '另一条对角线也压出折痕。', op: { type: 'crease', a: [0, 1], b: [1, 0], side: [0.15, 0.15], kind: 'valley', scope: 'all' } },
+        { title: '沿对角线对折', description: '沿对角线对折成一个大三角形。', op: { type: 'fold', a: [0, 0], b: [1, 1], side: [0.85, 0.15], kind: 'valley', scope: 'all' } },
+        { title: '再对折，收成四层三角', description: '把三角形再对折成四层的直角三角形（水雷基本型）。', op: { type: 'fold', a: [0, 1], b: [0.5, 0.5], side: [1, 1], kind: 'valley', scope: 'all' } }
+      ]
+    },
+    {
+      id: 'squarebase', name: '正方基本型（四层正方形）',
+      description: '两条对角线 + 两条中线压痕 → 竖中线对折 → 横中线对折，得到四层正方形',
+      width: 1, height: 1,
+      steps: [
+        { title: '压出两条对角线', description: '两条对角线各压一道折痕再展开。', op: { type: 'crease', a: [0, 0], b: [1, 1], side: [0.85, 0.15], kind: 'valley', scope: 'all' } },
+        { title: '压出另一条对角线', description: '另一条对角线压痕。', op: { type: 'crease', a: [0, 1], b: [1, 0], side: [0.15, 0.15], kind: 'valley', scope: 'all' } },
+        { title: '压出竖中线', description: '竖直中线压痕。', op: { type: 'crease', a: [0.5, 0], b: [0.5, 1], side: [0.15, 0.5], kind: 'valley', scope: 'all' } },
+        { title: '压出横中线', description: '水平中线压痕。', op: { type: 'crease', a: [0, 0.5], b: [1, 0.5], side: [0.5, 0.15], kind: 'valley', scope: 'all' } },
+        { title: '竖中线对折', description: '沿竖中线对折成两层长方形。', op: { type: 'fold', a: [0.5, 0], b: [0.5, 1], side: [0.15, 0.5], kind: 'valley', scope: 'all' } },
+        { title: '横中线再对折', description: '再沿横中线对折成四层正方形。', op: { type: 'fold', a: [0, 0.5], b: [1, 0.5], side: [0.5, 0.15], kind: 'valley', scope: 'all' } }
+      ]
+    }
+  ];
+  function basesList() { return bases.map(function (b) { return { id: b.id, name: b.name, description: b.description, steps: b.steps.length, width: b.width, height: b.height }; }); }
+  function getBase(id) { for (var i = 0; i < bases.length; i++) if (bases[i].id === id) return JSON.parse(JSON.stringify(bases[i])); return null; }
+
   function list() { return models.map(function (m) { return { id: m.id, name: m.name, difficulty: m.difficulty, description: m.description, steps: m.steps.length }; }); }
   function get(id) { for (var i = 0; i < models.length; i++) if (models[i].id === id) return JSON.parse(JSON.stringify(models[i])); return null; }
-  global.StepModels = { list: list, get: get };
+  global.StepModels = { list: list, get: get, bases: basesList, getBase: getBase };
 })(typeof window !== 'undefined' ? window : globalThis);

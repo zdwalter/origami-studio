@@ -1173,6 +1173,31 @@
     $('stPaper').addEventListener('change', function () { newPaper(this.value); });
     $('stTo3D').addEventListener('click', stepTo3D);
     $('stToDesign').addEventListener('click', stepToDesign);
+    // 「插入基本型」下拉
+    if ($('stBase')) {
+      function renderBaseMenu() {
+        var menu = $('baseMenu');
+        if (!menu || typeof StepModels === 'undefined') return;
+        menu.innerHTML = StepModels.bases().map(function (b) {
+          return '<button data-base="' + b.id + '" title="' + esc(b.description) + '">' + esc(b.name) + '<em>' + b.steps + ' 步</em></button>';
+        }).join('');
+      }
+      $('stBase').addEventListener('click', function (e) {
+        e.stopPropagation();
+        var menu = $('baseMenu');
+        if (!menu) return;
+        if (menu.hidden) { renderBaseMenu(); menu.hidden = false; } else menu.hidden = true;
+      });
+      $('baseMenu').addEventListener('click', function (e) {
+        var b = e.target.closest ? e.target.closest('[data-base]') : null;
+        if (!b) return;
+        $('baseMenu').hidden = true;
+        var base = StepModels.getBase(b.getAttribute('data-base'));
+        if (!base || !S.stepView) return;
+        if (S.stepView.insertBase(base)) { renderStepList(); if (S.syncStepEditor) S.syncStepEditor(); }
+      });
+      document.addEventListener('click', function () { if ($('baseMenu')) $('baseMenu').hidden = true; });
+    }
     if ($('edWriteBack')) $('edWriteBack').addEventListener('click', writeBackToSteps);
     if ($('edToStep')) $('edToStep').addEventListener('click', function () {
       if (!S.editor || !S.stepView) return;

@@ -487,6 +487,10 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
             <b id="st3DAngleOut" style="margin-left:4px">90°</b>
           </label>
           <button class="btn primary sm" id="stTo3D" title="把当前折出的所有折痕发送到 3D 仿真">折痕 → 3D 仿真</button>
+          <div class="dropdown" id="baseDropWrap">
+            <button class="btn sm" id="stBase" title="插入一个基本型（水雷基本型/正方基本型），之后可以在它上面继续折">插入基本型 ▾</button>
+            <div class="menu" id="baseMenu" hidden></div>
+          </div>
           <button class="btn ghost sm" id="stToDesign" title="把当前折痕图送进「折痕设计」，在那里点折痕改山/谷，分步折叠里对应那一步会自动改向并重折">折痕 → 折痕设计</button>
         </div>
         <div class="step-canvas-wrap"><canvas id="stepCanvas" tabindex="0"></canvas><div class="hint" id="stStatus">先从左侧「教学」选一个教程，或在纸上拖一条折线自己折</div></div>
@@ -6693,9 +6697,40 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
     });
   })();
 
+  // ---------------------------------------------------------------- 基本型（可以插入到分步折叠里当前后继续折）
+  // 引擎只会“平折”，所以水雷基本型用两次对折得到同样的四层三角形（和 Delta 教程开头一样）。
+  var bases = [
+    {
+      id: 'waterbomb', name: '水雷基本型（双三角）',
+      description: '两条对角线压痕 → 沿一条对角线对折 → 再对折成四层三角（尖朝右）',
+      width: 1, height: 1,
+      steps: [
+        { title: '压出对角线', description: '沿一条对角线压出折痕再展开。', op: { type: 'crease', a: [0, 0], b: [1, 1], side: [0.85, 0.15], kind: 'valley', scope: 'all' } },
+        { title: '压出另一条对角线', description: '另一条对角线也压出折痕。', op: { type: 'crease', a: [0, 1], b: [1, 0], side: [0.15, 0.15], kind: 'valley', scope: 'all' } },
+        { title: '沿对角线对折', description: '沿对角线对折成一个大三角形。', op: { type: 'fold', a: [0, 0], b: [1, 1], side: [0.85, 0.15], kind: 'valley', scope: 'all' } },
+        { title: '再对折，收成四层三角', description: '把三角形再对折成四层的直角三角形（水雷基本型）。', op: { type: 'fold', a: [0, 1], b: [0.5, 0.5], side: [1, 1], kind: 'valley', scope: 'all' } }
+      ]
+    },
+    {
+      id: 'squarebase', name: '正方基本型（四层正方形）',
+      description: '两条对角线 + 两条中线压痕 → 竖中线对折 → 横中线对折，得到四层正方形',
+      width: 1, height: 1,
+      steps: [
+        { title: '压出两条对角线', description: '两条对角线各压一道折痕再展开。', op: { type: 'crease', a: [0, 0], b: [1, 1], side: [0.85, 0.15], kind: 'valley', scope: 'all' } },
+        { title: '压出另一条对角线', description: '另一条对角线压痕。', op: { type: 'crease', a: [0, 1], b: [1, 0], side: [0.15, 0.15], kind: 'valley', scope: 'all' } },
+        { title: '压出竖中线', description: '竖直中线压痕。', op: { type: 'crease', a: [0.5, 0], b: [0.5, 1], side: [0.15, 0.5], kind: 'valley', scope: 'all' } },
+        { title: '压出横中线', description: '水平中线压痕。', op: { type: 'crease', a: [0, 0.5], b: [1, 0.5], side: [0.5, 0.15], kind: 'valley', scope: 'all' } },
+        { title: '竖中线对折', description: '沿竖中线对折成两层长方形。', op: { type: 'fold', a: [0.5, 0], b: [0.5, 1], side: [0.15, 0.5], kind: 'valley', scope: 'all' } },
+        { title: '横中线再对折', description: '再沿横中线对折成四层正方形。', op: { type: 'fold', a: [0, 0.5], b: [1, 0.5], side: [0.5, 0.15], kind: 'valley', scope: 'all' } }
+      ]
+    }
+  ];
+  function basesList() { return bases.map(function (b) { return { id: b.id, name: b.name, description: b.description, steps: b.steps.length, width: b.width, height: b.height }; }); }
+  function getBase(id) { for (var i = 0; i < bases.length; i++) if (bases[i].id === id) return JSON.parse(JSON.stringify(bases[i])); return null; }
+
   function list() { return models.map(function (m) { return { id: m.id, name: m.name, difficulty: m.difficulty, description: m.description, steps: m.steps.length }; }); }
   function get(id) { for (var i = 0; i < models.length; i++) if (models[i].id === id) return JSON.parse(JSON.stringify(models[i])); return null; }
-  global.StepModels = { list: list, get: get };
+  global.StepModels = { list: list, get: get, bases: basesList, getBase: getBase };
 })(typeof window !== 'undefined' ? window : globalThis);
 
 </script>
@@ -7092,6 +7127,35 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
     var st = this.history.length ? this.history[this.history.length - 1] : this.state();
     return SF.creasePattern(st, this.model ? this.model.name + ' 折痕' : '分步折叠折痕');
   };
+  /**
+   * 插入一个“基本型”：清空当前纸，按基本型的步骤折好，之后可以在它上面继续折。
+   * 已有步骤时先问一下（会覆盖），因为基本型必须从整张纸开始。
+   */
+  P.insertBase = function (base) {
+    if (!base || !base.steps || !base.steps.length) return false;
+    if (this.steps.length) {
+      var n = this.steps.length;
+      if (!window.confirm('当前已有 ' + n + ' 步。插入基本型会清空这些步骤，从整张纸重新折。要继续吗？')) return false;
+    }
+    if (this.anim) this._finishAnim();
+    var w = base.width || 1, h = base.height || 1;
+    this.reset(w, h);
+    var s = this.history[0];
+    for (var i = 0; i < base.steps.length; i++) {
+      var st = base.steps[i], r = SF.applyOp(s, st.op);
+      if (r.error) { this.onStatus('⚠ 基本型第 ' + (i + 1) + ' 步折不出来：' + r.error); return false; }
+      this.history.push(r.state);
+      this.steps.push({ title: st.title, description: st.description, op: st.op, user: true });
+      this.meta.push(this._metaFor(st.op, s, r));
+      s = r.state;
+    }
+    this.pos = this.history.length - 1;
+    this._fit(true);
+    this._changed();
+    this.onStatus('已插入「' + base.name + '」：共 ' + base.steps.length + ' 步，可以接着往下折');
+    return true;
+  };
+
   /** 把一张折痕图作为“参考折痕”载入当前状态：只画在纸上（角度 0），方便一条条点着折 */
   P.setGuideCreases = function (doc) {
     if (!doc || !doc.lines || !doc.lines.length) return 0;
@@ -8959,6 +9023,31 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
     $('stPaper').addEventListener('change', function () { newPaper(this.value); });
     $('stTo3D').addEventListener('click', stepTo3D);
     $('stToDesign').addEventListener('click', stepToDesign);
+    // 「插入基本型」下拉
+    if ($('stBase')) {
+      function renderBaseMenu() {
+        var menu = $('baseMenu');
+        if (!menu || typeof StepModels === 'undefined') return;
+        menu.innerHTML = StepModels.bases().map(function (b) {
+          return '<button data-base="' + b.id + '" title="' + esc(b.description) + '">' + esc(b.name) + '<em>' + b.steps + ' 步</em></button>';
+        }).join('');
+      }
+      $('stBase').addEventListener('click', function (e) {
+        e.stopPropagation();
+        var menu = $('baseMenu');
+        if (!menu) return;
+        if (menu.hidden) { renderBaseMenu(); menu.hidden = false; } else menu.hidden = true;
+      });
+      $('baseMenu').addEventListener('click', function (e) {
+        var b = e.target.closest ? e.target.closest('[data-base]') : null;
+        if (!b) return;
+        $('baseMenu').hidden = true;
+        var base = StepModels.getBase(b.getAttribute('data-base'));
+        if (!base || !S.stepView) return;
+        if (S.stepView.insertBase(base)) { renderStepList(); if (S.syncStepEditor) S.syncStepEditor(); }
+      });
+      document.addEventListener('click', function () { if ($('baseMenu')) $('baseMenu').hidden = true; });
+    }
     if ($('edWriteBack')) $('edWriteBack').addEventListener('click', writeBackToSteps);
     if ($('edToStep')) $('edToStep').addEventListener('click', function () {
       if (!S.editor || !S.stepView) return;
