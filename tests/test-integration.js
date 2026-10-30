@@ -659,7 +659,8 @@ var fails = 0; function ok(c, m) { console.log((c ? 'ok   ' : 'FAIL ') + m); if 
       spineVertical: st.creases.some(function (c) { return c.type === 'M' && Math.abs(c.a[0] - c.b[0]) < 1e-9; }),
       mHorizontal: st.creases.some(function (c) { return c.type === 'M' && Math.abs(c.a[1] - c.b[1]) < 1e-9; }),
       mAtHalf: st.creases.some(function (c) {
-        return c.type === 'M' && Math.abs(c.a[1] - st.height / 2) < 1e-6 && Math.abs(c.b[1] - st.height / 2) < 1e-6;
+        // 山折在“上方正方形”的中间高度（A4: 0.7071/2 ≈ 0.3536）
+        return c.type === 'M' && Math.abs(c.a[1] - st.width / 2) < 1e-6 && Math.abs(c.b[1] - st.width / 2) < 1e-6;
       }),
       hasVertical: st.creases.some(function (c) { return Math.abs(c.a[0] - c.b[0]) < 1e-9; }),
       stripArea: +stripArea.toFixed(4),
@@ -667,10 +668,11 @@ var fails = 0; function ok(c, m) { console.log((c ? 'ok   ' : 'FAIL ') + m); if 
     };
   });
   ok(baseA4.hasA4 && baseA4.paper === '0.7071x1', '纸张可以选 A4（1:√2）');
-  ok(baseA4.facets === 4 && baseA4.areaOk, 'A4 纸上插入水雷基本型：上半两层三角 + 下半纸条（' + baseA4.facets + ' 片、面积和纸一致）');
-  ok(baseA4.bbox[0] === 0 && baseA4.bbox[1] === 1, 'A4 版外形：尖朝上的三角占上半 + 纸条在下半（y ' + baseA4.bbox[0] + ' → ' + baseA4.bbox[1] + '）');
+  ok(baseA4.facets === 6 && baseA4.areaOk, 'A4 纸上插入水雷基本型：上方正方形收成四层三角 + 下半纸条（' + baseA4.facets + ' 片、面积和纸一致）');
+  ok(Math.abs(baseA4.bbox[0] - 0.3536) < 1e-3 && baseA4.bbox[1] === 1,
+     'A4 版外形：三角尖在上方正方形中心、纸条到底边（y ' + baseA4.bbox[0] + ' → ' + baseA4.bbox[1] + '）');
   ok(baseA4.mHorizontal && baseA4.mAtHalf && !baseA4.spineVertical && !baseA4.hasVertical,
-     'A4 版本只有一条山折，且是纸正中间那条横线（y = 纸高/2），没有竖向中脊');
+     'A4 版折痕和导出的折痕图一致：两条正方形对角线（谷）+ 正方形中间那条横线（山），没有竖向折痕');
 
   ok(!logs.length, 'no console errors ' + logs.join(' | '));
   await browser.close();
