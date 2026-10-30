@@ -406,12 +406,17 @@
       if (!window.confirm('当前已有 ' + n + ' 步。插入基本型会清空这些步骤，从整张纸重新折。要继续吗？')) return false;
     }
     if (this.anim) this._finishAnim();
-    // 用当前选中的纸张尺寸：正方形直接放，A4 这类长方形按比例拉伸（折痕/层结构不变）
+    // 用当前选中的纸张：正方形纸直接放；长方形的纸（A4）只在“上方最大的一块正方形”里折基本型，
+    // 剩下的那截纸留着当平纸条（和图纸上“三角 + 下方纸条”的样子一致）。
     var cur = this.state();
     var bw = base.width || 1, bh = base.height || 1;
     var w = cur.width || bw, h = cur.height || bh;
-    var sx = w / bw, sy = h / bh;
+    var side = Math.min(w, h);            // 正方形区域边长
+    var sx = side / bw, sy = side / bh;   // 等比缩放（基本型必须放在正方形里）
     var at = function (p) { return [p[0] * sx, p[1] * sy]; };
+    var strip = null;                     // 剩下的那截纸（长方形时才有）
+    if (h > side + 1e-9) strip = [[0, side], [side, side], [side, h], [0, h]];
+    else if (w > side + 1e-9) strip = [[side, 0], [w, 0], [w, h], [side, h]];
     this.reset(w, h);
     // 有 state 的（真正的收拢结果）直接放进去，算作一步
     if (base.state && base.state.facets && base.state.facets.length) {
@@ -430,6 +435,11 @@
       st0.creases = (base.state.creases || []).map(function (c) {
         return { a: at(c.a), b: at(c.b), type: c.type, angle: c.angle == null ? 180 : c.angle };
       });
+      if (strip) {
+        st0.facets.push({ id: st0.facets.length, poly: strip.map(function (q) { return q.slice(); }),
+                          T: { m: [1, 0, 0, 1], t: [0, 0] }, layer: 0 });
+        st0.nextId = st0.facets.length + 1;
+      }
       if (SF.compactLayers) SF.compactLayers(st0);
       this.history.push(st0);
       this.steps.push({ title: (base.state.steps && base.state.steps[0] && base.state.steps[0].title) || base.name,
@@ -460,6 +470,13 @@
       s = r.state;
     }
     this.pos = this.history.length - 1;
+    if (strip) {
+      var sp = SF.clone(this.history[this.pos]);
+      sp.facets.push({ id: sp.facets.length, poly: strip.map(function (q) { return q.slice(); }), T: { m: [1, 0, 0, 1], t: [0, 0] }, layer: 0 });
+      sp.nextId = sp.facets.length + 1;
+      if (SF.compactLayers) SF.compactLayers(sp);
+      this.history[this.pos] = sp;
+    }
     this._fit(true);
     this._changed();
     this.onStatus('已插入「' + base.name + '」：共 ' + stepList.length + ' 步，可以接着往下折');

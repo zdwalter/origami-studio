@@ -643,6 +643,9 @@ var fails = 0; function ok(c, m) { console.log((c ? 'ok   ' : 'FAIL ') + m); if 
     var st = v.state();
     var area = window.StepFold.totalArea(st);
     var paperArea = st.width * st.height;
+    var stripArea = st.facets.filter(function (f) { return f.poly.length >= 4; })
+      .reduce(function (a, f) { return a + Math.abs(window.OG.polyArea(f.poly)); }, 0);
+    var bd = window.StepFold.bounds(st);
     // 还原成正方形纸，别影响后面的用例
     sel.value = 'square'; sel.dispatchEvent(new Event('change', { bubbles: true }));
     await new Promise(function (r) { setTimeout(r, 300); });
@@ -653,11 +656,14 @@ var fails = 0; function ok(c, m) { console.log((c ? 'ok   ' : 'FAIL ') + m); if 
       layers: st.facets.map(function (f) { return f.layer; }).sort(),
       areaOk: Math.abs(area - paperArea) < 1e-6,
       vm: st.creases.map(function (c) { return c.type; }).sort().join(''),
-      spineVertical: st.creases.some(function (c) { return c.type === 'M' && Math.abs(c.a[0] - c.b[0]) < 1e-9; })
+      spineVertical: st.creases.some(function (c) { return c.type === 'M' && Math.abs(c.a[0] - c.b[0]) < 1e-9; }),
+      stripArea: +stripArea.toFixed(4),
+      bbox: [+bd.min[1].toFixed(4), +bd.max[1].toFixed(4)]
     };
   });
   ok(baseA4.hasA4 && baseA4.paper === '0.7071x1', '纸张可以选 A4（1:√2）');
-  ok(baseA4.facets === 5 && baseA4.areaOk, 'A4 纸上也能插入水雷基本型：' + baseA4.facets + ' 片、面积和纸一致');
+  ok(baseA4.facets === 6 && baseA4.areaOk, 'A4 纸上插入水雷基本型：基本型只占上方正方形 + 下方留一截纸条（' + baseA4.facets + ' 片、面积和纸一致）');
+  ok(Math.abs(baseA4.stripArea - 0.7071 * (1 - 0.7071)) < 1e-3 && baseA4.bbox[1] === 1, '下方纸条面积/位置正确（纸条 ' + baseA4.stripArea + '，底部到 y=' + baseA4.bbox[1] + '）');
   ok(baseA4.vm === 'MVV' && baseA4.spineVertical, 'A4 版本山谷属性不变（对角线谷折、中脊山折）');
 
   ok(!logs.length, 'no console errors ' + logs.join(' | '));
