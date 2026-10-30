@@ -144,11 +144,15 @@
         if (!list || list.length !== 2 || list[0] === list[1]) continue;
         var i = list[0], j = list[1], li = L[i], lj = L[j];
         if (!li || !lj || li.type !== lj.type || (li.angle || 0) !== (lj.angle || 0)) continue;
+        // 带“第几步”信息的折痕（从分步折叠送进来的）不合并：合并会丢掉步骤对应关系
+        if (li.stage !== undefined && lj.stage !== undefined && li.stage !== lj.stage) continue;
         var atA = key(li.a) === k, P = atA ? li.a : li.b, fi = atA ? li.b : li.a, fj = key(lj.a) === k ? lj.b : lj.a;
         var d1 = OG.norm(OG.sub(fi, P)), d2 = OG.norm(OG.sub(fj, P));
         if (Math.abs(OG.cross(d1, d2)) > 1e-9 || OG.dot(d1, d2) > -0.5) continue;
         var m = { a: fi, b: fj, type: li.type };
         if (li.angle !== undefined) m.angle = li.angle;
+        if (li.stage !== undefined) m.stage = li.stage;
+        if (li.foldAngle !== undefined) m.foldAngle = li.foldAngle;
         L[i] = m; L[j] = null;
         delete adj[k];
         var kj = key(fj);
