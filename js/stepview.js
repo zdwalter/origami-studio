@@ -680,8 +680,13 @@
     SF.snapPoints(this.state()).forEach(function (s) { var d = OG.dist(s.p, w); if (d < bd) { bd = d; best = { p: s.p.slice(), kind: s.kind }; } });
     if (best) return best;
     if (free) return { p: w, kind: 'free' };
-    var be = null; bd = tol * 0.8;
-    SF.outlineEdges(this.state()).forEach(function (e) { var d = OG.pointSegDist(w, e[0], e[1]); if (d < bd) { bd = d; be = e; } });
+    // 点在边上也算吸附：纸边与压痕都吸（点到点、画线都用这套）
+    var be = null; bd = tol * 1.35;      // 线吸附的判定范围略大于顶点，贴线时更容易吸上
+    this._axisSegments().forEach(function (sg) {
+      if (OG.dist(sg.a, sg.b) < 1e-9) return;
+      var d = OG.pointSegDist(w, sg.a, sg.b);
+      if (d < bd) { bd = d; be = [sg.a, sg.b]; }
+    });
     if (be) return { p: OG.lerp(be[0], be[1], OG.projectT(w, be[0], be[1])), kind: 'edge' };
     return { p: w, kind: 'free' };
   };

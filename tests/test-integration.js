@@ -356,6 +356,30 @@ var fails = 0; function ok(c, m) { console.log((c ? 'ok   ' : 'FAIL ') + m); if 
   ok(creaseAs.axisOk, '压痕可以当「点到对称线」的对称轴');
   ok(creaseAs.steps === 2, '用压痕当轴折完记成一步（共 ' + creaseAs.steps + ' 步）');
 
+  // 17. 点到点 / 画线 会主动吸附到纸边和折痕
+  var snapCrease = await page.evaluate(function () {
+    var v = window.OrigamiStudio.stepView, OG = window.OG;
+    v.reset(1, 1); v.setTool('line'); v.setCreaseOnly(true);
+    v.ui = { mode: 'side', line: { a: [0.2, 0.15], b: [0.8, 0.55] } };
+    v._updatePreview([0.2, 0.6]); v._commit();
+    v.setCreaseOnly(false);
+    if (v.anim) v._finishAnim();
+    var c = v.state().creases[0];
+    function distToCrease(p) { return Math.abs(OG.orient(c.a, c.b, p)) / OG.dist(c.a, c.b); }
+    // 在折痕中点上方 8 像素处点（屏幕距离，和真实使用一致）
+    var mid = OG.lerp(c.a, c.b, 0.5);
+    var nx = -(c.b[1] - c.a[1]), ny = (c.b[0] - c.a[0]);
+    var L = Math.hypot(nx, ny); nx /= L; ny /= L;
+    var near = [mid[0] + nx * 8 / v.view.s, mid[1] + ny * 8 / v.view.s];
+    var before = distToCrease(near), s = v._snap(near), after = distToCrease(s.p);
+    // 纸边：离上边 8 像素、且远离顶点/中点的地方
+    var edgePt = v._snap([0.36, 8 / v.view.s]);
+    v.setTool('line');
+    return { before: before, after: after, kind: s.kind, edgeKind: edgePt.kind, edgeY: edgePt.p[1] };
+  });
+  ok(snapCrease.kind === 'edge' && snapCrease.after < 1e-6, '点到点会吸附到折痕上（离折痕 ' + snapCrease.before.toFixed(4) + ' → ' + snapCrease.after.toFixed(6) + '）');
+  ok(snapCrease.edgeKind === 'edge' && Math.abs(snapCrease.edgeY) < 1e-6, '点到点也会吸附到纸边（kind=' + snapCrease.edgeKind + ', y=' + snapCrease.edgeY.toFixed(6) + '）');
+
   ok(!logs.length, 'no console errors ' + logs.join(' | '));
   await browser.close();
   console.log(fails ? fails + ' FAILED' : 'ALL OK');
