@@ -8028,7 +8028,7 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
     // 在折痕设计里换了/新载入折痕图时，把“当前模型的山/谷”记为基线：之后改的才写回
     if (S.mode === 'design' && S.editor && S.stepView && S.stepView.getSteps && S.stepView.getSteps().length) {
       S.stepKindLink = true;
-      S.stepKindBase = cpStageVotes(S.stepView, S.editor.doc.lines);
+      S.stepKindBase = cpGeomMap(S.editor.doc.lines);
     }
   }
   function loadPreset(id, vals, opts) {
@@ -8261,6 +8261,11 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
       onSelectionChange: function () { }
     });
     S.editor.setDoc(S.doc, { resetHistory: true });
+    // 编辑器刚建好/换图后，把当前折痕的山/谷记成基线（之后用户改的才写回）
+    if (S.stepView && S.stepView.getSteps && S.stepView.getSteps().length) {
+      S.stepKindLink = true;
+      S.stepKindBase = cpGeomMap(S.editor.doc.lines);
+    }
     applyGrid();
     S.editor.setLineType(currentLineType());
     S.editor.setDefaultAngle(+$('lineAngle').value || 180);
@@ -8445,38 +8450,78 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
     return out;
   }
 
+  /** 折痕线的几何键（不看类型）：同一条线在归一化前后保持一致 */
+  function cpGeomKey(l) {
+    var a = l.a, b = l.b;
+    var lo = (a[0] < b[0] || (a[0] === b[0] && a[1] <= b[1])) ? a : b;
+    var hi = lo === a ? b : a;
+    return lo[0].toFixed(5) + ',' + lo[1].toFixed(5) + ',' + hi[0].toFixed(5) + ',' + hi[1].toFixed(5);
+  }
+  /** 按“同一条线”汇总山/谷数量与所属步骤：{geomKey: {V, M, stage}} */
+  function cpGeomMap(lines) {
+    var map = {};
+    (lines || []).forEach(function (l) {
+      if (l.type !== 'V' && l.type !== 'M') return;
+      var k = cpGeomKey(l);
+      var m = map[k] || (map[k] = { V: 0, M: 0, stage: null });
+      m[l.type]++;
+      if (m.stage === null && l.stage) m.stage = l.stage;
+    });
+    return map;
+  }
+  /** 对比“送入时”和“现在”，找出山/谷被改过的线 → [{stage, type}] */
+  function cpDiffTypes(base, cur) {
+    var out = [];
+    Object.keys(cur).forEach(function (k) {
+      var b = base[k], c = cur[k];
+      if (!c || !c.stage || !b) return;
+      if (b.V === c.V && b.M === c.M) return;          // 这条线上山/谷数量没变
+      var type = (c.M > b.M) ? 'M' : 'V';              // 哪一类变多，就是被改成哪一类
+      out.push({ stage: c.stage, type: type });
+    });
+    var seen = {};
+    return out.filter(function (x) { if (seen[x.stage]) return false; seen[x.stage] = 1; return true; });
+  }
+
   /**
-   * 「写回分步折叠」：让分步折叠里每一步的折向，对齐折痕设计里现在的山/谷。
-   * 不依赖“基线 diff”（编辑器会合并/重排线条，diff 容易漏），而是直接比“现在这张图”和
-   * “分步折叠里那一步”的差异，把差异列出来让你确认后再改，然后自动重折。
+   * 「写回分步折叠」：把折痕设计里**改过的**山/谷写回分步折叠并自动重折。
+   * 判定用的是“同一条线上 M/V 的数量变化”，所以一条折痕在多层里成对记录（V/M 各一条）
+   * 也能认出你改的是哪一条，不会因为“还有另一条 V”而误判成“已一致”。
    */
   function writeBackToSteps() {
     if (!S.stepView || !S.editor) { toast('先用「折痕 → 折痕设计」从分步折叠送一张折痕图过来', true); return; }
     var v = S.stepView, steps = v.getSteps();
     if (!steps.length) { toast('分步折叠里还没有步骤', true); return; }
-    var now = cpStageVotes(v, S.editor.doc.lines);
-    if (!Object.keys(now).length) { toast('折痕设计里没有能对应到步骤的折痕（先用「折痕 → 折痕设计」送过来）', true); return; }
-    var todo = [];
-    Object.keys(now).forEach(function (st) {
-      var step = steps[+st - 1];
-      if (!step || !step.op || (step.op.type !== 'fold' && step.op.type !== 'crease')) return;
-      var want = now[st] === 'M' ? 'mountain' : 'valley';
-      if (step.op.kind === want) return;
-      todo.push({ stage: +st, want: want, type: now[st] });
+    var cur = cpGeomMap(S.editor.doc.lines);
+    if (!S.stepKindBase) {
+      S.stepKindBase = cur;
+      toast('已记录当前状态：之后再改折痕的山/谷，点这里就会写回');
+      return;
+    }
+    var changed = cpDiffTypes(S.stepKindBase, cur);
+    if (!changed.length) {
+      toast('没有检测到山/谷改动（先用「改类型」改折痕，再点写回）');
+      return;
+    }
+    var todo = changed.filter(function (c) {
+      var step = steps[c.stage - 1];
+      if (!step || !step.op || (step.op.type !== 'fold' && step.op.type !== 'crease')) return false;
+      return step.op.kind !== (c.type === 'M' ? 'mountain' : 'valley');
     });
-    if (!todo.length) { toast('折痕设计和分步折叠已经一致，没有要写回的'); return; }
-    var msg = '把折痕设计里的山/谷写回分步折叠（' + todo.length + ' 步）？\n' +
+    if (!todo.length) { toast('改动和分步折叠里的折向一致，不用写回'); return; }
+    var msg = '把折痕设计里的改动写回分步折叠（' + todo.length + ' 步）？\n' +
               todo.map(function (t) { return '第 ' + t.stage + ' 步 → ' + (t.type === 'M' ? '山折' : '谷折'); }).join('\n') +
               '\n\n点确定后会自动重折。';
     if (!window.confirm(msg)) return;
     var n = 0;
     todo.forEach(function (t) {
       var si = t.stage - 1;
-      if (!v.setStepKind(si, t.want)) return;
+      if (!v.setStepKind(si, t.type === 'M' ? 'mountain' : 'valley')) return;
       n++;
       var stp = v.getSteps()[si];
-      if (stp && /^(谷折|山折)/.test(stp.title || '')) stp.title = stp.title.replace(/^(谷折|山折)/, t.want === 'mountain' ? '山折' : '谷折');
+      if (stp && /^(谷折|山折)/.test(stp.title || '')) stp.title = stp.title.replace(/^(谷折|山折)/, t.type === 'M' ? '山折' : '谷折');
     });
+    S.stepKindBase = cpGeomMap(v.getCreasePattern().lines);   // 重折后重建基线
     S.editorTouched = false;
     renderStepList();
     if (S.syncStepEditor) S.syncStepEditor();
@@ -8501,6 +8546,7 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
     // 基线：送入后“每一步在折痕设计里对应的山/谷”，随后只把用户改过的写回去
     S.stepKindBase = cpStageVotes(v, S.editor ? S.editor.doc.lines : doc.lines);
     if ($('edWriteBack')) $('edWriteBack').hidden = false;
+    if (S.editor) S.stepKindBase = cpGeomMap(S.editor.doc.lines);   // 刚送进来：以此为新基线
     toast('已送进折痕设计：用「改类型」改山/谷，改完点右上「写回分步折叠」');
   }
 

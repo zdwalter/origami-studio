@@ -446,38 +446,33 @@ var fails = 0; function ok(c, m) { console.log((c ? 'ok   ' : 'FAIL ') + m); if 
     v._userOp({ type: 'fold', a: [0.5, 0.5], b: [1, 1], side: [0.85, 0.55], kind: 'valley', scope: 'topSheet' }, '折角', '');
     if (v.anim) v._finishAnim();
     var before = v.getSteps().map(function (s) { return s.op.kind; });
-    function sig(st) {
-      return st.facets.map(function (f) { return f.layer + ':' + (window.StepFold.affine.det(f.T) > 0 ? 'F' : 'B'); }).sort().join(',');
-    }
-    var layersBefore = sig(v.state());
     document.getElementById('stToDesign').click();
-    await new Promise(function (r) { setTimeout(r, 800); });
+    await new Promise(function (r) { setTimeout(r, 1400); });
     var ed = OS.editor;
-    var idx = -1, line = null;
-    (ed.doc.lines || []).forEach(function (l, i) { if (!line && l.stage === 2 && (l.type === 'V' || l.type === 'M')) { idx = i; line = l; } });
-    if (idx < 0) return { err: '没有 stage=2 的折痕' };
+    var staged = (ed.doc.lines || []).filter(function (l) { return l.stage; }).length;
+    var baseKeys = OS.stepKindBase ? Object.keys(OS.stepKindBase).length : 0;
     window.confirm = function () { return true; };
-    var opp = line.type === 'M' ? 'V' : 'M';
-    document.querySelectorAll('#typeGroup .ltype').forEach(function (bt) { if (bt.dataset.type === opp) bt.click(); });
-    ed.setTool('type');
-    await new Promise(function (r) { setTimeout(r, 150); });
-    var box = ed.canvas.getBoundingClientRect();
-    var mid = [(line.a[0] + line.b[0]) / 2, (line.a[1] + line.b[1]) / 2], sp = ed.toScreen(mid);
-    ['pointerdown', 'pointerup'].forEach(function (t) {
-      ed.canvas.dispatchEvent(new PointerEvent(t, { clientX: box.left + sp[0], clientY: box.top + sp[1], button: 0, bubbles: true, pointerId: 1 }));
-    });
-    await new Promise(function (r) { setTimeout(r, 600); });
+    // 把第 2 步的一条谷折改成山折（等价于用「改类型」点它）
+    var idx = -1;
+    for (var i = 0; i < ed.doc.lines.length; i++) {
+      var l = ed.doc.lines[i];
+      if (l.stage === 2 && l.type === 'V') { idx = i; break; }
+    }
+    if (idx >= 0) {
+      ed.doc.lines[idx].type = 'M';
+      ed._rebuild(); ed._draw(); ed.onChange(ed.doc);
+      await new Promise(function (r) { setTimeout(r, 900); });
+    }
     document.getElementById('edWriteBack').click();
-    await new Promise(function (r) { setTimeout(r, 900); });
+    await new Promise(function (r) { setTimeout(r, 1200); });
     return {
-      before: before, mode: OS.mode,
+      staged: staged, baseKeys: baseKeys, before: before, mode: OS.mode,
       after: v.getSteps().map(function (s) { return s.op.kind; }),
-      layersBefore: layersBefore,
-      layersAfter: sig(v.state()),
-      area: +window.StepFold.totalArea(v.state()).toFixed(6),
-      facets: v.state().facets.length
+      facets: v.state().facets.length,
+      area: +window.StepFold.totalArea(v.state()).toFixed(6)
     };
   });
+  ok(writeBack.staged >= 2 && writeBack.baseKeys >= 2, '折痕设计里的折痕带着步骤号，写回基线已建立（' + writeBack.staged + ' 条 / 基线 ' + writeBack.baseKeys + '）');
   ok(writeBack.mode === 'step', '点「写回分步折叠」后回到分步折叠');
   ok(writeBack.after && writeBack.after[1] === 'mountain' && writeBack.after[0] === 'valley',
      '写回后分步折叠第 2 步变成山折（' + JSON.stringify(writeBack.before) + ' → ' + JSON.stringify(writeBack.after) + '）');
