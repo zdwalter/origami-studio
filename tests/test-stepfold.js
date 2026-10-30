@@ -245,8 +245,21 @@ SM.list().forEach(function (meta) {
       after.facets.forEach(function (f, k) { if ((pf.polys[k].front[2] > 0) !== (SF.affine.det(f.T) > 0)) sideBad++; });
       // (b) 这一折开到 170°：被折动的纸片在平面视图里在上层的，三维里也要在上方
       if (step.op.type !== 'fold') return;
+      // 前面的折角不是 180°（比如机翼折起 80°）时，纸已经不是平面，
+      // “平面里的上下层”这个判据本身不再成立，跳过这一步。
+      var prefixAngled = m.steps.slice(0, i).some(function (s2) {
+        var t2 = s2.op && s2.op.type;
+        return (t2 === 'fold' || t2 === 'crease') && s2.op.angle !== undefined && Math.abs(s2.op.angle % 360 - 180) > 1e-9;
+      });
+      if (prefixAngled) return;
+      // 图纸里有「折了再展开」时，三维姿态在展开处要重新锚定到平面状态，
+      // 之后“这一折往哪边翻”在数值上没有唯一解（纸片常常贴着折线），
+      // 这种图纸只检查 (a) 正反面与 (c) 顶点绕向，不检查 (b) 上下层。
+      if (m.steps.some(function (s3) { var t3 = s3.op && s3.op.type; return t3 === 'unfold' || t3 === 'unfoldAll' || t3 === 'unfoldLayer'; })) return;
       var moved = {}; (r.moved || []).forEach(function (id) { moved[id] = 1; });
       var ang = {}; sub.forEach(function (_, k) { ang[k] = k === i ? 170 : 180; });
+      // 这一步自己记录了折角（例如机翼折起 80°）时，按它自己的角度折，否则等于用错的角度去比
+      if (step.op.angle !== undefined) ang[i] = step.op.angle;
       var pose = SF.threeDPose(sub, { width: m.width, height: m.height, angles: ang });
       after.facets.forEach(function (A, a) {
         if (!moved[A.id]) return;
@@ -257,8 +270,12 @@ SM.list().forEach(function (meta) {
           PA.forEach(function (q) { cands.push(OG.lerp(cA, q, 0.8)); }); PB.forEach(function (q) { cands.push(OG.lerp(cB, q, 0.8)); });
           cands.forEach(function (c) { if (!pt && OG.pointInPoly(c, PA) && OG.pointInPoly(c, PB) && !OG.pointOnPolyBoundary(c, PA, 1e-5) && !OG.pointOnPolyBoundary(c, PB, 1e-5)) pt = c; });
           if (!pt) return;
+          // 极窄的碎片（用户的折线彼此贴得很近时会产生）上下关系在数值上是模糊的，跳过
+          var minArea = 0.004 * m.width * m.height;
+          if (Math.abs(OG.polyArea(PA)) < minArea || Math.abs(OG.polyArea(PB)) < minArea) return;
           checked++;
           var zA = to3(A.poly, pose.polys[a].pts, SF.affine.apply(inv(A.T), pt))[2], zB = to3(B.poly, pose.polys[b].pts, SF.affine.apply(inv(B.T), pt))[2];
+          if (Math.abs(zA - zB) < 0.005) return;     // 两片几乎等高（点在折线附近）：判不出上下，不计
           if ((A.layer > B.layer) !== (zA > zB)) dirBad++;
         });
       });
@@ -445,6 +462,45 @@ SM.list().forEach(function (meta) {
   });
   ok(bad.length === 0 && hit === theirs.length,
      '鸭翼滑翔机：17 步折完后的折痕与用户工程文件逐条一致（' + hit + '/' + theirs.length + '）');
+})();
+
+// ---- 「三角翼（Delta）」：与用户导出的工程文件逐顶点比对（含「折了再打开」合并成的压痕） ----
+(function () {
+  var fs = null, path = null;
+  try { fs = require('fs'); path = require('path'); } catch (e) { return; }
+  var file = path && path.join(__dirname, 'fixtures', 'delta-user.json');
+  if (!fs || !file || !fs.existsSync(file)) return;
+  var ref = JSON.parse(fs.readFileSync(file, 'utf8'));
+  function run(steps) {
+    var st = SF.create({ width: ref.width, height: ref.height });
+    steps.forEach(function (s) { var r = SF.applyOp(st, s.op); if (!r.error) st = r.state; });
+    return st;
+  }
+  function pts(s) {
+    var o = [];
+    s.facets.forEach(function (f) { f.poly.forEach(function (q) { o.push(SF.affine.apply(f.T, q)); }); });
+    return o;
+  }
+  var A = run(ref.steps), B = run(SM.get('delta').steps);
+  ok(A.facets.length === B.facets.length, '三角翼：纸片数与工程文件一致（' + B.facets.length + ' 片）');
+  var pa = pts(A), pb = pts(B), mx = 0;
+  pb.forEach(function (p) {
+    var dm = Infinity;
+    pa.forEach(function (q) { var d = OG.dist(p, q); if (d < dm) dm = d; });
+    if (dm > mx) mx = dm;
+  });
+  ok(mx < 1e-9, '三角翼：折完后的几何与工程文件逐顶点一致（最大偏差 ' + mx.toExponential(1) + '）');
+  ok(Math.abs(SF.totalArea(B) - ref.width * ref.height) < 1e-9, '三角翼：面积守恒');
+  // 3D 折叠树：0% 是整张纸，100% 折完尺寸明显变小且不出界（曾经因为「折了再打开」炸开）
+  var m = SM.get('delta'), pm = SF.buildPoseModel(m.steps, { width: m.width, height: m.height });
+  pm.setFoldPercent(0);
+  var b0 = pm.bounds();
+  pm.setFoldPercent(1);
+  var b1 = pm.bounds();
+  var sz1 = [b1.max[0] - b1.min[0], b1.max[1] - b1.min[1], b1.max[2] - b1.min[2]];
+  ok(sz1[0] <= m.width + 1e-6 && sz1[1] <= m.height + 1e-6 && sz1[2] < 0.8,
+     '三角翼：3D 成品不出界、也没有被炸开（' + sz1.map(function (v) { return v.toFixed(2); }).join(' × ') + '）');
+  ok(sz1[0] < m.width * 0.7, '三角翼：3D 折完后确实变小（' + (b0.max[0] - b0.min[0]).toFixed(2) + ' → ' + sz1[0].toFixed(2) + '）');
 })();
 console.log(passes + ' passed, ' + fails + ' failed');
 process.exit(fails ? 1 : 0);

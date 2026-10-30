@@ -756,8 +756,45 @@
   };
 
   /** 按 steps 重放，返回三维显示姿态：{ polys:[{pts:[[x,y,z]..], front:[nx,ny,nz]}], bounds } */
+  /** 把二维变换 T 抬成三维变换（z=0 平放）：用来把姿态重新锚定到平面状态 */
+  function m3fromT(T) {
+    var m = T.m, t = T.t;
+    return { R: [m[0], m[2], 0, m[1], m[3], 0, 0, 0, 1], t: [t[0], t[1], 0] };
+  }
   function threeDPose(steps, opts) {
     opts = opts || {};
+    // 全部按 180°（且没有逐帧进度）时，三维姿态就等于平面状态：
+    // 直接由平面结果给出姿态，避免“折了又展开/翻面”这类步骤在累计旋转里差一个镜像。
+    (function () {
+      var allFlat = true;
+      (steps || []).forEach(function (step, i) {
+        var op = step.op || step;
+        var aIn = opts.angles || {};
+        var ang = aIn[i] !== undefined ? aIn[i] : (op.angle !== undefined ? op.angle : (op.foldAngle !== undefined ? op.foldAngle : 180));
+        if (op.type === 'fold') {
+          var m360 = ((ang % 360) + 360) % 360;
+          if (Math.abs(m360 - 180) > 1e-9 && Math.abs(m360) > 1e-9) allFlat = false;
+        }
+        if (opts.ramp && opts.ramp[i] !== undefined && opts.ramp[i] !== 1) allFlat = false;
+      });
+      if (opts.flipAngle !== undefined && Math.abs(opts.flipAngle % 360 - 180) > 1e-9) allFlat = false;
+      if (opts.open || opts.openByLine || opts.track) allFlat = false;   // 逐帧跟踪的模式不走这条捷径
+      if (!allFlat) return;
+      var flatSt = create({ width: opts.width || 1, height: opts.height || 1 });
+      (steps || []).forEach(function (step) {
+        var r = applyOp(flatSt, step.op || step);
+        if (!r.error) flatSt = r.state;
+      });
+      var mn = [1e9, 1e9, 0], mx = [-1e9, -1e9, 0];
+      var out = flatSt.facets.map(function (f) {
+        var pts = f.poly.map(function (q) { var p2 = apply(f.T, q); return [p2[0], p2[1], 0]; });
+        pts.forEach(function (p2) { for (var k = 0; k < 3; k++) { if (p2[k] < mn[k]) mn[k] = p2[k]; if (p2[k] > mx[k]) mx[k] = p2[k]; } });
+        return { pts: pts, front: [0, 0, isFlipped(f) ? -1 : 1], layer: f.layer, area: Math.abs(OG.polyArea(f.poly)) };
+      });
+      threeDPose._flat = { polys: out, min: mn, max: mx, state: flatSt };
+      return;
+    })();
+    if (threeDPose._flat) { var f0 = threeDPose._flat; threeDPose._flat = null; return f0; }
     var angles = opts.angles || {};                 // { 步序号(0基): 角度 } 默认 180
     var ramp = opts.ramp || null;                   // { 步序号: 0..1 } 动画进度（折叠/翻面/旋转都按比例做）
     var flipDeg = opts.flipAngle === undefined ? 180 : opts.flipAngle;
@@ -852,6 +889,39 @@
                 sign = want * (sideP - sideN) >= 0 ? 1 : -1;
               }
             } catch (e) { sign = op.kind === 'mountain' ? -1 : 1; }
+            var movedIds = r.moved || [];
+            // 方向最终以“平面视图里的上下层顺序”为准：谷折把被折的纸抬到静止纸之上，
+            // 山折反之。当翻面/展开之后基准片找偏了（法向取反）时，这里能纠正过来。
+            try {
+              var mvId0 = (r.moved || [])[0];
+              var mvF = null, stF = null;
+              for (var q1 = 0; q1 < after.facets.length && !mvF; q1++) if (after.facets[q1].id === mvId0) mvF = after.facets[q1];
+              if (mvF) {
+                var PA0 = folded(mvF), cM0 = OG.polyCentroid(PA0), bestO = null, bestA = 0;
+                after.facets.forEach(function (cand3) {
+                  if (movedIds.indexOf(cand3.id) >= 0) return;
+                  var PB0 = folded(cand3), ar = Math.abs(OG.polyArea(PB0));
+                  if (!(ar > bestA)) return;
+                  // 两片在平面上要真的有重叠，才谈得上谁压谁
+                  var hit = OG.pointInPoly(cM0, PB0) || OG.pointInPoly(OG.polyCentroid(PB0), PA0);
+                  if (!hit) {
+                    for (var t3 = 0; t3 < 5 && !hit; t3++) hit = OG.pointInPoly(OG.lerp(cM0, OG.polyCentroid(PB0), t3 / 4), PB0);
+                  }
+                  if (hit) { bestO = cand3; bestA = ar; }
+                });
+                stF = bestO;
+              }
+              if (mvF && stF && M[mvF.id] && M[stF.id]) {
+                var probe2 = Math.min(20, Math.abs(ang) || 20);
+                var cenM = OG.polyCentroid(mvF.poly), cenS = OG.polyCentroid(stF.poly);
+                var cM3 = m3apply(M[mvF.id], [cenM[0], cenM[1], 0]);
+                var cS3 = m3apply(M[stF.id], [cenS[0], cenS[1], 0]);
+                var up = m3apply(m3rotAxis(p1, dir, probe2), cM3)[2] - cS3[2];
+                var dn = m3apply(m3rotAxis(p1, dir, -probe2), cM3)[2] - cS3[2];
+                var above = mvF.layer >= stF.layer;
+                sign = (above ? up >= dn : up <= dn) ? 1 : -1;
+              }
+            } catch (e2) { void e2; }
             var Rm = m3rotAxis(p1, dir, sign * ang);
             if ((opts.open && opts.open.step === i) || (opts.openByLine && opts.openByLine.step === i)) {
               hinge = { p: p1, d: dir, ids: (r.moved || []).slice() };
@@ -890,20 +960,32 @@
       } else if (op.type === 'unfold' || op.type === 'unfoldLayer') {
         // 打开上一折：把那一折反向转回去。带 ramp 时按进度反着做，所以 3D 里能看到“折起来又展开”。
         var u = undoStack.pop();
-        if (u) {
-          var ru = ramp ? (ramp[i] === undefined ? 1 : ramp[i]) : 1;
-          var Ru = m3rotAxis(u.p, u.d, -u.sign * u.ang * ru);
+        var ru2 = ramp ? (ramp[i] === undefined ? 1 : ramp[i]) : 1;
+        if (u && ru2 < 1) {
+          // 动画中途：按进度反着转回去，这样“折起来又展开”的过程能看到
+          var Ru = m3rotAxis(u.p, u.d, -u.sign * u.ang * ru2);
           u.ids.forEach(function (id) { if (M[id]) M[id] = m3mul(Ru, M[id]); });
           if (u.tk) u.tk.forEach(function (t) { t.M = m3mul(Ru, t.M); });
+        } else {
+          // 完全展开：直接以二维状态为准重新锚定。之前按“折”累计的旋转在
+          // 翻面/多层折叠之后会对不上（差一个镜像），而二维结果本身就是正确答案。
+          after.facets.forEach(function (f) { M[f.id] = m3fromT(f.T); });
+          if (TK) TK.forEach(function (t) { var Tq = planeTOf(after, t.cen); if (Tq) t.M = m3fromT(Tq); });
         }
       } else if (op.type === 'unfoldAll') {
         // 展开复原：所有折起来的都按进度打开（后折的先开）
         var ra = ramp ? (ramp[i] === undefined ? 1 : ramp[i]) : 1;
-        while (undoStack.length) {
-          var ua = undoStack.pop();
-          var Ra = m3rotAxis(ua.p, ua.d, -ua.sign * ua.ang * ra);
-          ua.ids.forEach(function (id) { if (M[id]) M[id] = m3mul(Ra, M[id]); });
-          if (ua.tk) ua.tk.forEach(function (t) { t.M = m3mul(Ra, t.M); });
+        if (ra < 1) {
+          while (undoStack.length) {
+            var ua = undoStack.pop();
+            var Ra = m3rotAxis(ua.p, ua.d, -ua.sign * ua.ang * ra);
+            ua.ids.forEach(function (id) { if (M[id]) M[id] = m3mul(Ra, M[id]); });
+            if (ua.tk) ua.tk.forEach(function (t) { t.M = m3mul(Ra, t.M); });
+          }
+        } else {
+          while (undoStack.length) undoStack.pop();
+          after.facets.forEach(function (f) { M[f.id] = m3fromT(f.T); });
+          if (TK) TK.forEach(function (t) { var Tq = planeTOf(after, t.cen); if (Tq) t.M = m3fromT(Tq); });
         }
       }
       st = after;

@@ -211,6 +211,34 @@
       ]
     });
   })();
+  // ---------------------------------------------------------------- 三角翼（Delta，A4 长方形纸）
+  // 原样取自用户折好后导出的工程文件（16 步，含 160° / 80° 折角）。
+  // 其中「折一下再打开」的成对步骤合并成一次压痕：折痕与最终几何完全等价
+  // （逐顶点偏差 5.6e-16），但 3D 折叠树才能正确演出来。
+  (function () {
+    models.push({
+      id: 'delta', name: '三角翼（Delta）', difficulty: 3, frontColor: '#e8553d',
+      displayAngles: { 10: 160, 11: 80, 13: 80 },
+      description: '三角翼纸飞机：左右各折一道留折痕 → 压出横中线 → 下边折上 → 两个斜折 → 再折一道 → 沿中线 160° → 两侧机翼 80°。步骤取自实际折叠数据。',
+      width: Math.SQRT1_2, height: 1,
+      steps: [
+        { title: '翻面', description: '把纸翻过来，让要折的一面朝上。', op: { type: 'flip' } },
+        { title: '左边折到中线（折完打开，留折痕）', description: '左边折到中线上，再打开，留下折痕。', op: { type: 'crease', a: [0.3535533905932738, 0.0], b: [0.3535533905932738, 1.0], side: [0.0, 0.5], kind: 'valley', scope: 'all' } },
+        { title: '右边折到中线（折完打开，留折痕）', description: '右边同样折到中线上再打开。', op: { type: 'crease', a: [0.5303300858899107, 1.0], b: [0.5303300858899107, 0.0], side: [0.7071067811865476, 0.5], kind: 'valley', scope: 'all' } },
+        { title: '翻面', description: '翻面。', op: { type: 'flip' } },
+        { title: '压出横中线', description: '压出横向中线的折痕。', op: { type: 'crease', a: [0.7071067811865476, 0.5], b: [-0.2928932188134524, 0.5], side: [0.3535533905932738, 0.0], kind: 'valley', scope: 'all' } },
+        { title: '下边折到上方', description: '把下边折到上方。', op: { type: 'fold', a: [-0.1464466094067262, 0.75], b: [0.8535533905932737, 0.75], side: [0.3535533905932738, 1.0], kind: 'valley', scope: 'all' } },
+        { title: '折右侧斜边', description: '沿斜线把右侧折过来。', op: { type: 'fold', a: [-0.0338674863486495, 0.06724028202754961], b: [0.56652826618715, 1.1325618417045504], side: [0.0, 0.75], kind: 'valley', scope: 'all' } },
+        { title: '折左侧斜边', description: '另一侧同样沿斜线折。', op: { type: 'fold', a: [0.12995103444756645, 1.1259784737260745], b: [0.7526174502490766, 0.06268831837317035], side: [0.7071067811865476, 0.75], kind: 'valley', scope: 'all' } },
+        { title: '再折一道横线', description: '再折一道横向的折。', op: { type: 'fold', a: [-0.058839127705156535, 0.541608922707228], b: [0.7610352970327221, 0.5470618283377897], side: [0.3497348582561424, 0.7493039817069785], kind: 'valley', scope: 'all' } },
+        { title: '翻面', description: '翻面。', op: { type: 'flip' } },
+        { title: '沿中线对折（160°）', description: '沿中线对折到 160°，机身留一点厚度。', op: { type: 'fold', a: [0.3535533905932738, 0.14040416292441538], b: [0.3535533905932738, -0.8595958370755846], side: [0.0, 0.07020208146220769], kind: 'valley', scope: 'all', angle: 160 } },
+        { title: '折起右机翼（80°）', description: '只取最上层，把右机翼折起 80°。', op: { type: 'fold', a: [0.3535533905932738, 0.7546665523368017], b: [0.6073519598462856, -0.21259054184505244], side: [0.5898178666964125, 0.3354469973759138], kind: 'valley', scope: 'topSheet', angle: 80 } },
+        { title: '翻面', description: '翻面。', op: { type: 'flip' } },
+        { title: '折左机翼（80°）', description: '另一侧机翼同样折起 80°。完成！', op: { type: 'fold', a: [0.7006894285284604, 0.7546665523368018], b: [0.4468908592754485, -0.21259054184505233], side: [0.4644249524253217, 0.3354469973759138], kind: 'valley', scope: 'topSheet', angle: 80 } },
+      ]
+    });
+  })();
 
   function list() { return models.map(function (m) { return { id: m.id, name: m.name, difficulty: m.difficulty, description: m.description, steps: m.steps.length }; }); }
   function get(id) { for (var i = 0; i < models.length; i++) if (models[i].id === id) return JSON.parse(JSON.stringify(models[i])); return null; }
