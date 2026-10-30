@@ -7534,8 +7534,8 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
     return { p: w, kind: 'free' };
   };
   /** 点到点：第二个点靠近第一个点的水平/垂直/45° 方向时自动对齐（返回 {p, axis}） */
-  P._orthoSnap = function (p, q) {
-    if (!p || !q) return { p: q, axis: null };
+  P._orthoSnap = function (p, q, axes) {
+    if (!p || !q) return { p: q, axis: null, shift: 0 };
     var tol = 10 / this.view.s;
     var dx = q[0] - p[0], dy = q[1] - p[1], d = Math.hypot(dx, dy);
     if (d < 1e-9) return { p: q, axis: null };
@@ -7545,6 +7545,7 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
     ];
     var best = null, bd = tol;
     dirs.forEach(function (dd) {
+      if (axes && axes.indexOf(dd.axis) < 0) return;
       // 沿这个方向的垂距（考虑正反两个朝向）
       var u = [dd.v[0], dd.v[1]];
       var t = dx * u[0] + dy * u[1];
@@ -7554,8 +7555,9 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
       if (t >= 0 && perp < bd) { bd = perp; best = { u: u, t: t, axis: dd.axis }; }
       if (t < 0 && perp2 < bd) { bd = perp2; best = { u: [-u[0], -u[1]], t: -t, axis: dd.axis }; }
     });
-    if (!best) return { p: q, axis: null };
-    return { p: [p[0] + best.u[0] * best.t, p[1] + best.u[1] * best.t], axis: best.axis };
+    if (!best) return { p: q, axis: null, shift: 0 };
+    var np = [p[0] + best.u[0] * best.t, p[1] + best.u[1] * best.t];
+    return { p: np, axis: best.axis, shift: Math.hypot(np[0] - q[0], np[1] - q[1]) };
   };
   /** 最近的“边”：纸边或压痕（压痕也能当边用） */
   P._nearestEdge = function (w) {
@@ -7586,10 +7588,17 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
     else if (ui.mode === 'p2p2') {
       var snp = this._snap(w), q = snp.p;
       ui.snap = snp;
-      // 吸到顶点/边中点时以那个点为准；自由点则自动对齐水平/垂直/45°
-      var ort = snp.kind === 'free' ? this._orthoSnap(ui.p, q) : { p: q, axis: null };
-      ui.ortho = ort.axis;
-      if (ort.axis) q = ort.p;
+      ui.ortho = null;
+      if (snp.kind === 'free') {
+        // 自由点：自动对齐水平/垂直/45°
+        var ort = this._orthoSnap(ui.p, q);
+        if (ort.axis) { q = ort.p; ui.ortho = ort.axis; }
+      } else {
+        // 吸到顶点/边：如果只微调一点点就能让折痕变成水平/垂直，就微调（顶点几乎不动）
+        var ort2 = this._orthoSnap(ui.p, q, ['h', 'v']);
+        var maxShift = 12 / this.view.s;
+        if (ort2.axis && ort2.shift <= maxShift) { q = ort2.p; ui.ortho = ort2.axis; }
+      }
       if (OG.dist(q, ui.p) < 1e-5) { ui.preview = null; ui.line = null; return; }
       line = SF.pointToPoint(ui.p, q); ui.line = line; side = ui.p;
     }

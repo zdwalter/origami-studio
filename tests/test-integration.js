@@ -516,6 +516,40 @@ var fails = 0; function ok(c, m) { console.log((c ? 'ok   ' : 'FAIL ') + m); if 
   ok(clickFold.mode === 'step' && clickFold.guides >= 2, '「折痕图 → 分步折叠」把折痕载入成参考折痕（' + clickFold.guides + ' 条）');
   ok(clickFold.tool2 === 'foldcrease', '载入后自动切到「点折痕折」工具');
 
+  // 23. 点到点：吸到顶点/边时，如果微调一点就能让折痕水平/垂直，就自动微调
+  var axisSnap = await page.evaluate(async function () {
+    var v = window.OrigamiStudio.stepView, OG = window.OG;
+    v.reset(1, 1); v.setTool('p2p');
+    var px = 5 / v.view.s;
+    // 两个顶点本应水平，但第二点偏了 5 像素：应被微调成水平 → 折痕垂直
+    var o = v._orthoSnap([0, 0], [1, px], ['h', 'v']);
+    // 偏得太多（40 像素）时不该硬拉
+    var far = v._orthoSnap([0, 0], [1, 40 / v.view.s], ['h', 'v']);
+    function fire(pt, type) {
+      var r = v.canvas.getBoundingClientRect(), s = v.toScreen(pt);
+      v.canvas.dispatchEvent(new PointerEvent(type, { clientX: r.left + s[0], clientY: r.top + s[1], button: 0, bubbles: true, pointerId: 1 }));
+    }
+    fire([0, 0], 'pointerdown'); fire([0, 0], 'pointerup');
+    await new Promise(function (r) { setTimeout(r, 200); });
+    fire([1, px], 'pointermove');
+    await new Promise(function (r) { setTimeout(r, 200); });
+    var ortho = v.ui.ortho;
+    fire([1, px], 'pointerdown'); fire([1, px], 'pointerup');
+    await new Promise(function (r) { setTimeout(r, 600); });
+    if (v.anim) v._finishAnim();
+    var last = v.getSteps()[v.getSteps().length - 1], op = last && last.op;
+    v.setTool('line');
+    return {
+      axis: o.axis, shiftPx: +(o.shift * v.view.s).toFixed(1), farAxis: far.axis,
+      ortho: ortho,
+      dx: op ? Math.abs(op.a[0] - op.b[0]) : null,
+      dy: op ? Math.abs(op.a[1] - op.b[1]) : null
+    };
+  });
+  ok(axisSnap.axis === 'h' && axisSnap.shiftPx <= 12, '点到点：吸到顶点的同时只为对齐移动了 ' + axisSnap.shiftPx + ' 像素');
+  ok(axisSnap.farAxis === null, '偏得太多时不会硬拉成水平/垂直');
+  ok(axisSnap.ortho === 'h' && axisSnap.dx < 1e-9 && axisSnap.dy > 0.1, '两点对齐成水平 → 折痕正好垂直（dx=' + (axisSnap.dx || 0).toFixed(9) + '）');
+
   ok(!logs.length, 'no console errors ' + logs.join(' | '));
   await browser.close();
   console.log(fails ? fails + ' FAILED' : 'ALL OK');
