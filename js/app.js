@@ -458,6 +458,7 @@
             opt.value = model.id; opt.textContent = model.name; sel.appendChild(opt);
             sel.value = model.id;
             S.stepView.loadModel(model);
+            syncPaperSelect(model);          // 纸张选择器跟着模型的纸张走（正方形 / A4）
             $('stepModelDesc').textContent = model.description;
             toast('已载入分步作品：' + it.name + '（' + it.steps.length + ' 步，可逐步回看）');
           }, 60);
@@ -701,6 +702,7 @@
             opt.value = model.id; opt.textContent = model.name; sel.appendChild(opt);
             sel.value = model.id;
             S.stepView.loadModel(model);
+            syncPaperSelect(model);          // 纸张选择器跟着模型的纸张走（正方形 / A4）
             $('stepModelDesc').textContent = model.description;
             toast('已导入分步模型：' + model.name + '（' + obj.steps.length + ' 步）');
           }, 60);
