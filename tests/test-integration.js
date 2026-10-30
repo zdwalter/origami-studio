@@ -380,6 +380,40 @@ var fails = 0; function ok(c, m) { console.log((c ? 'ok   ' : 'FAIL ') + m); if 
   ok(snapCrease.kind === 'edge' && snapCrease.after < 1e-6, '点到点会吸附到折痕上（离折痕 ' + snapCrease.before.toFixed(4) + ' → ' + snapCrease.after.toFixed(6) + '）');
   ok(snapCrease.edgeKind === 'edge' && Math.abs(snapCrease.edgeY) < 1e-6, '点到点也会吸附到纸边（kind=' + snapCrease.edgeKind + ', y=' + snapCrease.edgeY.toFixed(6) + '）');
 
+  // 18. 点到点：第二个点靠近水平/垂直/45° 时自动对齐
+  var ortho = await page.evaluate(function () {
+    var v = window.OrigamiStudio.stepView, OG = window.OG;
+    v.reset(1, 1); v.setTool('p2p');
+    var p1 = [0.2, 0.3], px = 4 / v.view.s;
+    var h = v._orthoSnap(p1, [0.65, p1[1] + px]);
+    var vv = v._orthoSnap(p1, [p1[0] + px, 0.75]);
+    var dg = v._orthoSnap(p1, [0.55, 0.65 + px]);
+    var free = v._orthoSnap(p1, [0.62, 0.55]);
+    // 真点两下（第二点故意差 4 像素），看折线是不是正好垂直
+    function fire(pt, type) {
+      var r = v.canvas.getBoundingClientRect(), s = v.toScreen(pt);
+      v.canvas.dispatchEvent(new PointerEvent(type, { clientX: r.left + s[0], clientY: r.top + s[1], button: 0, bubbles: true, pointerId: 1 }));
+    }
+    fire([0.2, 0.3], 'pointerdown'); fire([0.2, 0.3], 'pointerup');
+    fire([0.65, 0.3 + px], 'pointermove');
+    fire([0.65, 0.3 + px], 'pointerdown'); fire([0.65, 0.3 + px], 'pointerup');
+    if (v.anim) v._finishAnim();
+    var last = v.getSteps()[v.getSteps().length - 1], op = last && last.op;
+    v.setTool('line');
+    return {
+      hAxis: h.axis, hDy: Math.abs(h.p[1] - p1[1]),
+      vAxis: vv.axis, vDx: Math.abs(vv.p[0] - p1[0]),
+      dAxis: dg.axis, freeAxis: free.axis,
+      foldDx: op ? Math.abs(op.a[0] - op.b[0]) : null,
+      foldDy: op ? Math.abs(op.a[1] - op.b[1]) : null
+    };
+  });
+  ok(ortho.hAxis === 'h' && ortho.hDy < 1e-9, '点到点：几乎水平的第二点会被对齐成水平（偏差 ' + ortho.hDy.toFixed(9) + '）');
+  ok(ortho.vAxis === 'v' && ortho.vDx < 1e-9, '点到点：几乎垂直的第二点会被对齐成垂直（偏差 ' + ortho.vDx.toFixed(9) + '）');
+  ok(ortho.dAxis === 'd', '点到点：45° 方向也会对齐');
+  ok(!ortho.freeAxis, '点到点：明显斜的方向不会被强行对齐');
+  ok(ortho.foldDx < 1e-9 && ortho.foldDy > 0.1, '点到点对齐后折线正好垂直于两点连线（dx=' + (ortho.foldDx || 0).toFixed(9) + '）');
+
   ok(!logs.length, 'no console errors ' + logs.join(' | '));
   await browser.close();
   console.log(fails ? fails + ' FAILED' : 'ALL OK');

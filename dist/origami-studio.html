@@ -7222,6 +7222,16 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
       if (ui.line) this._drawFoldLine(ctx, ui.line.a, ui.line.b, this.kind);
       if (ui.preview) this._drawPreview(ctx, ui.preview.res, ui.preview.op);
     }
+    if (ui.mode === 'p2p2' && ui.p && ui.ortho) {
+      var sp1 = this.toScreen(ui.p);
+      ctx.save(); ctx.strokeStyle = 'rgba(232,85,61,0.45)'; ctx.lineWidth = 1; ctx.setLineDash([5, 4]);
+      var L = 4000;
+      if (ui.ortho === 'h') { ctx.beginPath(); ctx.moveTo(0, sp1[1]); ctx.lineTo(L, sp1[1]); }
+      else if (ui.ortho === 'v') { ctx.beginPath(); ctx.moveTo(sp1[0], 0); ctx.lineTo(sp1[0], L); }
+      else { ctx.beginPath(); ctx.moveTo(sp1[0] - L, sp1[1] - L); ctx.lineTo(sp1[0] + L, sp1[1] + L);
+             ctx.moveTo(sp1[0] - L, sp1[1] + L); ctx.lineTo(sp1[0] + L, sp1[1] - L); }
+      ctx.stroke(); ctx.setLineDash([]); ctx.restore();
+    }
     if (ui.mode === 'p2p2' && ui.p) { var s = this.toScreen(ui.p); ctx.save(); ctx.fillStyle = '#e8553d'; ctx.beginPath(); ctx.arc(s[0], s[1], 5, 0, 7); ctx.fill(); ctx.restore(); }
     if (ui.edge) this._hlEdge(ctx, ui.edge, '#e8553d');
     if (ui.hoverEdge) this._hlEdge(ctx, ui.hoverEdge, 'rgba(232,85,61,0.55)');
@@ -7266,7 +7276,7 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
   P._hint = function () {
     return {
       line: '折线：在纸上拖出一条折线（Shift 约束 22.5°），然后点击要翻折的一侧；Esc 取消',
-      p2p: '点到点：先点击要移动的点，再点击目标点',
+      p2p: '点到点：先点击要移动的点，再点击目标点（靠近水平/垂直/45° 会自动对齐）',
       e2e: '边到边：先点击要移动的边（纸边或压痕），再点击目标边',
       linefold: '点到对称线：先点要折的那一层上的一个点，再点作为对称轴的折痕或纸边，这一层就沿它翻过去',
       pan: '平移：拖动画布；滚轮缩放，双击复位视图'
@@ -7337,6 +7347,30 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
     if (be) return { p: OG.lerp(be[0], be[1], OG.projectT(w, be[0], be[1])), kind: 'edge' };
     return { p: w, kind: 'free' };
   };
+  /** 点到点：第二个点靠近第一个点的水平/垂直/45° 方向时自动对齐（返回 {p, axis}） */
+  P._orthoSnap = function (p, q) {
+    if (!p || !q) return { p: q, axis: null };
+    var tol = 10 / this.view.s;
+    var dx = q[0] - p[0], dy = q[1] - p[1], d = Math.hypot(dx, dy);
+    if (d < 1e-9) return { p: q, axis: null };
+    var dirs = [
+      { v: [1, 0], axis: 'h' }, { v: [0, 1], axis: 'v' },
+      { v: [Math.SQRT1_2, Math.SQRT1_2], axis: 'd' }, { v: [Math.SQRT1_2, -Math.SQRT1_2], axis: 'd' }
+    ];
+    var best = null, bd = tol;
+    dirs.forEach(function (dd) {
+      // 沿这个方向的垂距（考虑正反两个朝向）
+      var u = [dd.v[0], dd.v[1]];
+      var t = dx * u[0] + dy * u[1];
+      var perp = Math.abs(dx * -u[1] + dy * u[0]);
+      // 反方向也要考虑（例如向下垂直线）
+      var perp2 = Math.abs(dx * u[1] - dy * u[0]);
+      if (t >= 0 && perp < bd) { bd = perp; best = { u: u, t: t, axis: dd.axis }; }
+      if (t < 0 && perp2 < bd) { bd = perp2; best = { u: [-u[0], -u[1]], t: -t, axis: dd.axis }; }
+    });
+    if (!best) return { p: q, axis: null };
+    return { p: [p[0] + best.u[0] * best.t, p[1] + best.u[1] * best.t], axis: best.axis };
+  };
   /** 最近的“边”：纸边或压痕（压痕也能当边用） */
   P._nearestEdge = function (w) {
     var tol = 14 / this.view.s, best = null, bd = tol;
@@ -7363,7 +7397,16 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
     var ui = this.ui, line = null, side = null;
     ui.lastW = w;
     if (ui.mode === 'side') { line = ui.line; side = w; }
-    else if (ui.mode === 'p2p2') { var q = this._snap(w).p; ui.snap = this._snap(w); if (OG.dist(q, ui.p) < 1e-5) { ui.preview = null; ui.line = null; return; } line = SF.pointToPoint(ui.p, q); ui.line = line; side = ui.p; }
+    else if (ui.mode === 'p2p2') {
+      var snp = this._snap(w), q = snp.p;
+      ui.snap = snp;
+      // 吸到顶点/边中点时以那个点为准；自由点则自动对齐水平/垂直/45°
+      var ort = snp.kind === 'free' ? this._orthoSnap(ui.p, q) : { p: q, axis: null };
+      ui.ortho = ort.axis;
+      if (ort.axis) q = ort.p;
+      if (OG.dist(q, ui.p) < 1e-5) { ui.preview = null; ui.line = null; return; }
+      line = SF.pointToPoint(ui.p, q); ui.line = line; side = ui.p;
+    }
     else if (ui.mode === 'pt2axis') {
       var seg = this._nearestCrease(w, ui.p);
       ui.hoverCrease = seg;
