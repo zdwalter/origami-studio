@@ -6716,11 +6716,11 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
           // 最后一层：再转 90°
           { poly: [[1, 0], [1, 1], [0.5, 0.5]], T: { m: [0, 1, -1, 0], t: [1, 0] }, layer: 0 }
         ],
+        // 山谷属性：两条对角线是谷折，中脊（竖中线）是山折（标准水雷基本型）
         creases: [
           { a: [0, 0], b: [1, 1], type: 'V', angle: 180 },
           { a: [0, 1], b: [1, 0], type: 'V', angle: 180 },
-          { a: [0.5, 0], b: [0.5, 1], type: 'V', angle: 180 },
-          { a: [0, 0.5], b: [1, 0.5], type: 'V', angle: 180 }
+          { a: [0.5, 0], b: [0.5, 1], type: 'M', angle: 180 }
         ],
         steps: [{ title: '收拢成水雷基本型', description: '两条对角线 + 一条中线压痕后，撑开收拢：正面是两片翻片，中间是中脊。' }]
       }

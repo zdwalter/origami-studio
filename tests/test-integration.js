@@ -575,8 +575,11 @@ var fails = 0; function ok(c, m) { console.log((c ? 'ok   ' : 'FAIL ') + m); if 
       area: +window.StepFold.totalArea(st).toFixed(6),
       layers: st.facets.map(function (f) { return f.layer; }).sort(),
       spine: (function () {
-        // 正面两片翻片在中脊处相接 → 应该有一道竖折痕
-        return st.creases.some(function (c) { return Math.abs(c.a[0] - c.b[0]) < 1e-9; });
+        // 正面两片翻片在中脊处相接 → 应有一道竖折痕，且是山折；两条对角线是谷折
+        var v = st.creases.filter(function (c) { return c.type === 'V'; }).length;
+        var m = st.creases.filter(function (c) { return c.type === 'M'; }).length;
+        var verticalM = st.creases.some(function (c) { return c.type === 'M' && Math.abs(c.a[0] - c.b[0]) < 1e-9; });
+        return { v: v, m: m, verticalM: verticalM };
       })(),
       titles: v.getSteps().map(function (s) { return s.title; })
     };
@@ -584,7 +587,8 @@ var fails = 0; function ok(c, m) { console.log((c ? 'ok   ' : 'FAIL ') + m); if 
   ok(baseIns.menuShown && baseIns.names.indexOf('waterbomb') >= 0, '「插入基本型」菜单里有水雷基本型（' + (baseIns.names || []).join(',') + '）');
   ok(baseIns.steps >= 1 && baseIns.facets === 5, '插入后得到水雷基本型（正反 5 片、4 层、中间一条脊）：' + baseIns.steps + ' 步 / ' + baseIns.facets + ' 片 / 层 ' + (baseIns.layers || []));
   ok(baseIns.paper === '1x1' && Math.abs(baseIns.area - 1) < 1e-6, '基本型用的是正方形纸且面积守恒（' + baseIns.paper + ' / ' + baseIns.area + '）');
-  ok(baseIns.spine, '水雷基本型带中脊折痕（正面两片翻片）');
+  ok(baseIns.spine && baseIns.spine.verticalM, '水雷基本型的中脊是山折（竖中线）');
+  ok(baseIns.spine && baseIns.spine.v === 2 && baseIns.spine.m === 1, '两条对角线是谷折、中脊是山折（V' + (baseIns.spine || {}).v + ' / M' + (baseIns.spine || {}).m + '）');
 
   // 25. 「点折痕折」按折痕自己的山/谷折（Shift 反向），不看工具栏
   var creaseKind = await page.evaluate(async function () {
