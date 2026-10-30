@@ -657,6 +657,10 @@ var fails = 0; function ok(c, m) { console.log((c ? 'ok   ' : 'FAIL ') + m); if 
       areaOk: Math.abs(area - paperArea) < 1e-6,
       vm: st.creases.map(function (c) { return c.type; }).sort().join(''),
       spineVertical: st.creases.some(function (c) { return c.type === 'M' && Math.abs(c.a[0] - c.b[0]) < 1e-9; }),
+      mHorizontal: st.creases.some(function (c) { return c.type === 'M' && Math.abs(c.a[1] - c.b[1]) < 1e-9; }),
+      mAtStrip: st.creases.some(function (c) {
+        return c.type === 'M' && Math.abs(c.a[1] - c.b[1]) < 1e-9 && Math.abs(c.a[1] - st.width) < 1e-6;
+      }),
       stripArea: +stripArea.toFixed(4),
       bbox: [+bd.min[1].toFixed(4), +bd.max[1].toFixed(4)]
     };
@@ -664,7 +668,8 @@ var fails = 0; function ok(c, m) { console.log((c ? 'ok   ' : 'FAIL ') + m); if 
   ok(baseA4.hasA4 && baseA4.paper === '0.7071x1', '纸张可以选 A4（1:√2）');
   ok(baseA4.facets === 6 && baseA4.areaOk, 'A4 纸上插入水雷基本型：基本型只占上方正方形 + 下方留一截纸条（' + baseA4.facets + ' 片、面积和纸一致）');
   ok(Math.abs(baseA4.stripArea - 0.7071 * (1 - 0.7071)) < 1e-3 && baseA4.bbox[1] === 1, '下方纸条面积/位置正确（纸条 ' + baseA4.stripArea + '，底部到 y=' + baseA4.bbox[1] + '）');
-  ok(baseA4.vm === 'MVV' && baseA4.spineVertical, 'A4 版本山谷属性不变（对角线谷折、中脊山折）');
+  ok(baseA4.mHorizontal && !baseA4.spineVertical && baseA4.mAtStrip,
+     'A4 版本的山折是水平那条（纸条上方 y=' + (+0.7071).toFixed(4) + '），不是垂直中脊');
 
   ok(!logs.length, 'no console errors ' + logs.join(' | '));
   await browser.close();
