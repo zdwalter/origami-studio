@@ -620,7 +620,7 @@
     return {
       line: '折线：在纸上拖出一条折线（Shift 约束 22.5°），然后点击要翻折的一侧；Esc 取消',
       p2p: '点到点：先点击要移动的点，再点击目标点',
-      e2e: '边到边：先点击要移动的边，再点击目标边',
+      e2e: '边到边：先点击要移动的边（纸边或压痕），再点击目标边',
       linefold: '点到对称线：先点要折的那一层上的一个点，再点作为对称轴的折痕或纸边，这一层就沿它翻过去',
       pan: '平移：拖动画布；滚轮缩放，双击复位视图'
     }[this.tool] || '';
@@ -685,9 +685,14 @@
     if (be) return { p: OG.lerp(be[0], be[1], OG.projectT(w, be[0], be[1])), kind: 'edge' };
     return { p: w, kind: 'free' };
   };
+  /** 最近的“边”：纸边或压痕（压痕也能当边用） */
   P._nearestEdge = function (w) {
     var tol = 14 / this.view.s, best = null, bd = tol;
-    SF.outlineEdges(this.state()).forEach(function (e) { if (OG.dist(e[0], e[1]) < 1e-6) return; var d = OG.pointSegDist(w, e[0], e[1]); if (d < bd) { bd = d; best = e; } });
+    this._axisSegments().forEach(function (sg) {
+      if (OG.dist(sg.a, sg.b) < 1e-6) return;
+      var d = OG.pointSegDist(w, sg.a, sg.b);
+      if (d < bd) { bd = d; best = [sg.a.slice(), sg.b.slice()]; }
+    });
     return best;
   };
   P._invalidatePreview = function () { if (this.ui) { this.ui.previewKey = null; if (this.ui.lastW) this._updatePreview(this.ui.lastW); } this.dirty = true; };

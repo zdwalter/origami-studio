@@ -330,6 +330,32 @@ var fails = 0; function ok(c, m) { console.log((c ? 'ok   ' : 'FAIL ') + m); if 
   ok(flip.widths[2] < flip.widths[0] * 0.4, '翻面动画中途整张纸立起来（宽度 ' + flip.widths[0] + ' → ' + flip.widths[2] + ' px）');
   ok(flip.area, '翻面后纸张面积不变');
 
+  // 16. 压痕可以当「边到边」的边，也可以当「点到对称线」的对称轴
+  var creaseAs = await page.evaluate(function () {
+    var v = window.OrigamiStudio.stepView, SF = window.StepFold, OG = window.OG;
+    v.reset(1, 1); v.setTool('line'); v.setCreaseOnly(true);
+    v.ui = { mode: 'side', line: { a: [0.2, 0.15], b: [0.8, 0.55] } };
+    v._updatePreview([0.2, 0.6]); v._commit();
+    v.setCreaseOnly(false);
+    if (v.anim) v._finishAnim();
+    var creases = v.state().creases.length;
+    // (a) 边到边：最近“边”应该就是这条压痕
+    var mid = [0.5, 0.35], near = v._nearestEdge(mid);
+    var nIsCrease = !!near && Math.abs(OG.orient(near[0], near[1], mid)) / OG.dist(near[0], near[1]) < 0.02;
+    // (b) 点到对称线：拿这条压痕当轴
+    v.setTool('linefold');
+    v.ui = { mode: 'pt2axis', p: [0.5, 0.8] };
+    v._updatePreview([0.5, 0.35]);
+    var hover = !!v.ui.hoverCrease, pv = v.ui.preview, pvOk = !!pv && !pv.res.error;
+    if (pvOk) v._commit();
+    if (v.anim) v._finishAnim();
+    v.setTool('line');
+    return { creases: creases, edgeOk: nIsCrease, axisOk: hover && pvOk, steps: v.getSteps().length };
+  });
+  ok(creaseAs.creases === 1 && creaseAs.edgeOk, '压痕可以当「边到边」的边被选中');
+  ok(creaseAs.axisOk, '压痕可以当「点到对称线」的对称轴');
+  ok(creaseAs.steps === 2, '用压痕当轴折完记成一步（共 ' + creaseAs.steps + ' 步）');
+
   ok(!logs.length, 'no console errors ' + logs.join(' | '));
   await browser.close();
   console.log(fails ? fails + ' FAILED' : 'ALL OK');
