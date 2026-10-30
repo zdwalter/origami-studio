@@ -239,6 +239,23 @@
       ]
     });
   })();
+  // ---------------------------------------------------------------- 航天飞机（The Shuttle）· 草稿
+  // 只有前 5 步是按图纸（第 1–5 格）做出来的；后面几格（含两个红框步骤）还没确认，
+  // 所以先只放能对上图纸的部分，等用户核对/给工程文件后再补完。
+  (function () {
+    models.push({
+      id: 'shuttle', name: '航天飞机（Shuttle）· 草稿', difficulty: 4, frontColor: '#e8553d',
+      description: '草稿：前 5 步按图纸做出四层三角与前层折角，后面的步骤（含红框那两步）待核对。正方形纸。',
+      width: 1, height: 1,
+      steps: [
+        { title: '压出对角线', description: '把正方形沿一条对角线压出折痕再展开。', op: { type: 'crease', a: [0.0, 0.0], b: [1.0, 1.0], side: [0.85, 0.15], kind: 'valley', scope: 'all' } },
+        { title: '压出另一条对角线', description: '另一条对角线也压出折痕。', op: { type: 'crease', a: [0.0, 1.0], b: [1.0, 0.0], side: [0.15, 0.15], kind: 'valley', scope: 'all' } },
+        { title: '沿对角线对折', description: '沿对角线对折成一个大三角形。', op: { type: 'fold', a: [0.0, 0.0], b: [1.0, 1.0], side: [0.85, 0.15], kind: 'valley', scope: 'all' } },
+        { title: '再对折，收成四层三角', description: '把三角形再对折成四层的直角三角形（跟图纸第 3 格一样，尖朝右）。', op: { type: 'fold', a: [0.0, 1.0], b: [0.5, 0.5], side: [1.0, 1.0], kind: 'valley', scope: 'all' } },
+        { title: '前层下角往下折', description: '只取最上面那一层，把下面的角往下折（图纸第 4–5 格）。', op: { type: 'fold', a: [-2.220446049250313e-16, 0.7200000000000001], b: [0.5, 0.7200000000000001], side: [0.04999999999999978, 1.0000000000000002], kind: 'valley', scope: 'topSheet' } },
+      ]
+    });
+  })();
 
   function list() { return models.map(function (m) { return { id: m.id, name: m.name, difficulty: m.difficulty, description: m.description, steps: m.steps.length }; }); }
   function get(id) { for (var i = 0; i < models.length; i++) if (models[i].id === id) return JSON.parse(JSON.stringify(models[i])); return null; }
