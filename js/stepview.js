@@ -418,6 +418,27 @@
     if (h > side + 1e-9) strip = [[0, side], [side, side], [side, h], [0, h]];
     else if (w > side + 1e-9) strip = [[side, 0], [w, 0], [w, h], [side, h]];
     this.reset(w, h);
+    // 长方形纸（A4）专用：基本型自己给出“上半折好 + 下半纸条”的折叠状态
+    if (strip && typeof base.stateRect === 'function') {
+      var R = base.stateRect(w, h);
+      var stR = SF.clone(this.history[0]);
+      stR.facets = R.facets.map(function (f, i) {
+        return { id: i, poly: f.poly.map(function (q) { return q.slice(); }), T: { m: f.T.m.slice(), t: f.T.t.slice() }, layer: f.layer };
+      });
+      stR.nextId = stR.facets.length + 1;
+      stR.creases = (R.creases || []).map(function (c) { return { a: c.a.slice(), b: c.b.slice(), type: c.type, angle: c.angle == null ? 180 : c.angle }; });
+      if (SF.compactLayers) SF.compactLayers(stR);
+      this.history.push(stR);
+      this.steps.push({ title: (R.steps && R.steps[0] && R.steps[0].title) || base.name,
+                        description: (R.steps && R.steps[0] && R.steps[0].description) || base.description,
+                        op: { type: 'base' }, user: true });
+      this.meta.push({ type: 'instant' });
+      this.pos = this.history.length - 1;
+      this._fit(true);
+      this._changed();
+      this.onStatus('已插入「' + base.name + '」：上半两层三角 + 下半纸条，可以接着往下折');
+      return true;
+    }
     // 有 state 的（真正的收拢结果）直接放进去，算作一步
     if (base.state && base.state.facets && base.state.facets.length) {
       var st0 = SF.clone(this.history[0]);

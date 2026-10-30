@@ -283,6 +283,33 @@
           { a: [0.5, 0], b: [0.5, 1], type: 'M', angle: 180 }
         ],
         steps: [{ title: '收拢成水雷基本型', description: '两条对角线 + 一条中线压痕后，撑开收拢：正面是两片翻片，中间是中脊。' }]
+      },
+      // 长方形纸（A4）：折痕是整张纸对角的 X + 纸高/2 的横山折；收拢后上半是两层三角、下半是纸条
+      stateRect: function (w, h) {
+        // 长方形纸（A4）：两条对角线（谷）+ 正中间横山折，收拢后
+        // 上半部分变成“尖朝上的两层三角”（正面是左右两片，中间那条竖线是折出来的边，不是折痕），
+        // 下半部分留着当纸条。和图纸第 4 格的样子一致。
+        var V = [[0, 0], [w, 0], [w / 2, h / 2]];                       // 上半部分中间那块（尖朝下）
+        var sideL = [[0, 0], [0, h / 2], [w / 2, h / 2]];                // 左上角
+        var sideR = [[w, 0], [w, h / 2], [w / 2, h / 2]];                // 右上角
+        var strip = [[0, h / 2], [w, h / 2], [w, h], [0, h]];            // 下半部分纸条
+        return {
+          facets: [
+            // 里层：中间那块整体翻上去，变成尖朝上的三角
+            { poly: V, T: { m: [1, 0, 0, -1], t: [0, h / 2] }, layer: 0 },
+            // 外层：两个角三角形各自折到三角的左右两半上
+            { poly: sideL, T: { m: [-1, 0, 0, 1], t: [w / 2, 0] }, layer: 1 },
+            { poly: sideR, T: { m: [-1, 0, 0, 1], t: [w + w / 2, 0] }, layer: 1 },
+            // 纸条
+            { poly: strip, T: { m: [1, 0, 0, 1], t: [0, 0] }, layer: 0 }
+          ],
+          creases: [
+            { a: [0, 0], b: [w, h], type: 'V', angle: 180 },           // 对角线 谷折
+            { a: [0, h], b: [w, 0], type: 'V', angle: 180 },           // 另一条对角线 谷折
+            { a: [0, h / 2], b: [w, h / 2], type: 'M', angle: 180 }    // 正中间横线 山折
+          ],
+          steps: [{ title: '收拢成水雷基本型（长方形）', description: '两条对角线 + 正中间横山折：上半收拢成尖朝上的两层三角，下半留下当纸条。' }]
+        };
       }
     },
     {
@@ -301,7 +328,15 @@
   ];
   function baseStepCount(b) { return (b.steps || (b.state && b.state.steps) || []).length; }
   function basesList() { return bases.map(function (b) { return { id: b.id, name: b.name, description: b.description, steps: baseStepCount(b), width: b.width, height: b.height }; }); }
-  function getBase(id) { for (var i = 0; i < bases.length; i++) if (bases[i].id === id) return JSON.parse(JSON.stringify(bases[i])); return null; }
+  function getBase(id) {
+    for (var i = 0; i < bases.length; i++) {
+      if (bases[i].id !== id) continue;
+      var b = bases[i], copy = JSON.parse(JSON.stringify(b));
+      if (b.stateRect) copy.stateRect = b.stateRect;      // 函数不能被 JSON 克隆，这里补回来
+      return copy;
+    }
+    return null;
+  }
 
   function list() { return models.map(function (m) { return { id: m.id, name: m.name, difficulty: m.difficulty, description: m.description, steps: m.steps.length }; }); }
   function get(id) { for (var i = 0; i < models.length; i++) if (models[i].id === id) return JSON.parse(JSON.stringify(models[i])); return null; }

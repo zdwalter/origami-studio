@@ -667,8 +667,8 @@ var fails = 0; function ok(c, m) { console.log((c ? 'ok   ' : 'FAIL ') + m); if 
     };
   });
   ok(baseA4.hasA4 && baseA4.paper === '0.7071x1', '纸张可以选 A4（1:√2）');
-  ok(baseA4.facets === 6 && baseA4.areaOk, 'A4 纸上插入水雷基本型：基本型只占上方正方形 + 下方留一截纸条（' + baseA4.facets + ' 片、面积和纸一致）');
-  ok(Math.abs(baseA4.stripArea - 0.7071 * (1 - 0.7071)) < 1e-3 && baseA4.bbox[1] === 1, '下方纸条面积/位置正确（纸条 ' + baseA4.stripArea + '，底部到 y=' + baseA4.bbox[1] + '）');
+  ok(baseA4.facets === 4 && baseA4.areaOk, 'A4 纸上插入水雷基本型：上半两层三角 + 下半纸条（' + baseA4.facets + ' 片、面积和纸一致）');
+  ok(baseA4.bbox[0] === 0 && baseA4.bbox[1] === 1, 'A4 版外形：尖朝上的三角占上半 + 纸条在下半（y ' + baseA4.bbox[0] + ' → ' + baseA4.bbox[1] + '）');
   ok(baseA4.mHorizontal && baseA4.mAtHalf && !baseA4.spineVertical && !baseA4.hasVertical,
      'A4 版本只有一条山折，且是纸正中间那条横线（y = 纸高/2），没有竖向中脊');
 
