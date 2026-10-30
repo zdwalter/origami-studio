@@ -580,6 +580,39 @@ var fails = 0; function ok(c, m) { console.log((c ? 'ok   ' : 'FAIL ') + m); if 
   ok(baseIns.steps === 4 && baseIns.facets === 4, '插入后自动折好 4 步、得到四层三角形（' + baseIns.steps + ' 步 / ' + baseIns.facets + ' 片）');
   ok(baseIns.paper === '1x1' && Math.abs(baseIns.area - 1) < 1e-6, '基本型用的是正方形纸且面积守恒（' + baseIns.paper + ' / ' + baseIns.area + '）');
 
+  // 25. 「点折痕折」按折痕自己的山/谷折（Shift 反向），不看工具栏
+  var creaseKind = await page.evaluate(async function () {
+    var OS = window.OrigamiStudio;
+    async function run(type, shift) {
+      document.querySelector('.mode-tab[data-mode="step"]').click();
+      await new Promise(function (r) { setTimeout(r, 300); });
+      OS.stepView.reset(1, 1);                      // 从空白正方形纸开始
+      document.querySelector('.mode-tab[data-mode="design"]').click();
+      await new Promise(function (r) { setTimeout(r, 400); });
+      OS.editor.setDoc({ name: 't', description: '', width: 1, height: 1, lines: [
+        { a: [0, 0], b: [1, 0], type: 'B' }, { a: [1, 0], b: [1, 1], type: 'B' },
+        { a: [1, 1], b: [0, 1], type: 'B' }, { a: [0, 1], b: [0, 0], type: 'B' },
+        { a: [0.5, 0], b: [0.5, 1], type: type }
+      ] }, { resetHistory: true });
+      await new Promise(function (r) { setTimeout(r, 400); });
+      document.getElementById('edToStep').click();
+      await new Promise(function (r) { setTimeout(r, 900); });
+      var v = OS.stepView;
+      v.setTool('foldcrease');
+      var status = '';
+      v.onStatus = function (m) { status = m; };
+      var ok = v.foldAlongCreaseAt([0.5, 0.7], shift);
+      if (v.anim) v._finishAnim();
+      var st = v.getSteps().slice(-1)[0];
+      return { ok: !!ok, kind: st ? st.op.kind : null, status: status };
+    }
+    var m = await run('M', false), vv = await run('V', false), inv = await run('V', true);
+    return { m: m, v: vv, inv: inv };
+  });
+  ok(creaseKind.m.kind === 'mountain', '点山折折痕 → 按山折折（' + creaseKind.m.status + '）');
+  ok(creaseKind.v.kind === 'valley', '点谷折折痕 → 按谷折折（' + creaseKind.v.status + '）');
+  ok(creaseKind.inv.kind === 'mountain', 'Shift 点谷折折痕 → 反向折成山折');
+
   ok(!logs.length, 'no console errors ' + logs.join(' | '));
   await browser.close();
   console.log(fails ? fails + ' FAILED' : 'ALL OK');

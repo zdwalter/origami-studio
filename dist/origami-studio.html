@@ -6850,8 +6850,8 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
    * 点击处：打开该处最上面那一层所在的折——效果是回到“折这一层之前”的样子。
    * 引擎会把那一折从历史里去掉后按纸面坐标重放，所以后面的折、折痕都不受影响。
    */
-  /** 「点折痕折一步」：点到哪条折痕，就按当前山/谷沿它折一步 */
-  P.foldAlongCreaseAt = function (world) {
+  /** 「点折痕折一步」：点到哪条折痕，就按**那条折痕自己的山/谷**沿它折一步（Shift 反向折） */
+  P.foldAlongCreaseAt = function (world, invert) {
     var seg = this._nearestCrease(world, null);
     if (!seg) { this.onStatus('⚠ 点在纸上的折痕附近（会高亮），再点一次'); this.dirty = true; return false; }
     var line = { a: seg.a.slice(), b: seg.b.slice() };
@@ -6880,11 +6880,15 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
       side = best.q;
     }
     if (Math.abs(OG.orient(line.a, line.b, side)) < 1e-9) { this.onStatus('⚠ 点在折痕的一侧再试'); this.dirty = true; return false; }
-    var op = { type: 'fold', a: line.a, b: line.b, side: side, kind: this.kind, scope: this.scope };
+    // 山/谷按折痕本身来（折痕图里设的是谷就谷折、是山就山折）；没有类型时退回工具栏选择
+    var kind = seg.type === 'M' ? 'mountain' : (seg.type === 'V' ? 'valley' : this.kind);
+    if (invert) kind = kind === 'mountain' ? 'valley' : 'mountain';
+    var op = { type: 'fold', a: line.a, b: line.b, side: side, kind: kind, scope: this.scope };
     if (this.foldAngle && this.foldAngle < 180) op.angle = this.foldAngle;
     var n = this.steps.filter(function (x) { return x.user; }).length + 1;
-    var ok = this._userOp(op, (this.kind === 'mountain' ? '山折' : '谷折') + '（沿折痕，第 ' + n + ' 次自定义）',
-      '沿纸上已有的折痕折一步');
+    var ok = this._userOp(op, (kind === 'mountain' ? '山折' : '谷折') + '（沿折痕，第 ' + n + ' 次自定义）',
+      '沿纸上已有的折痕折一步' + (invert ? '（Shift 反向）' : ''));
+    if (ok) this.onStatus('这条折痕是' + (kind === 'mountain' ? '山折' : '谷折') + '，已按它折了一步' + (invert ? '（Shift 反向）' : ''));
     return ok;
   };
 
@@ -7497,7 +7501,9 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
     }
     if (ui.hoverCrease) {
       var hc0 = this.toScreen(ui.hoverCrease.a), hc1 = this.toScreen(ui.hoverCrease.b);
-      ctx.save(); ctx.strokeStyle = 'rgba(232,85,61,0.85)'; ctx.lineWidth = 4; ctx.lineCap = 'round';
+      ctx.save();
+      ctx.strokeStyle = ui.hoverCrease.type === 'M' ? 'rgba(214,60,80,0.9)' : 'rgba(47,111,237,0.9)';   // 山=红、谷=蓝
+      ctx.lineWidth = 4; ctx.lineCap = 'round';
       ctx.beginPath(); ctx.moveTo(hc0[0], hc0[1]); ctx.lineTo(hc1[0], hc1[1]); ctx.stroke(); ctx.restore();
     }
     if (ui.snap) {
@@ -7527,7 +7533,7 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
       line: '折线：在纸上拖出一条折线（Shift 约束 22.5°），然后点击要翻折的一侧；Esc 取消',
       p2p: '点到点：先点击要移动的点，再点击目标点（靠近水平/垂直/45° 会自动对齐）',
       e2e: '边到边：先点击要移动的边（纸边或压痕），再点击目标边',
-      foldcrease: '点折痕折一步：鼠标靠近折痕会高亮，点一下（点在哪一侧，那一侧就翻过去）；山/谷用上方按钮切换',
+      foldcrease: '点折痕折一步：鼠标靠近折痕会高亮，点一下按这条折痕自己的山/谷折（Shift 反向折）；点在哪一侧，那一侧就翻过去',
       linefold: '点到对称线：先点要折的那一层上的一个点，再点作为对称轴的折痕或纸边，这一层就沿它翻过去',
       pan: '平移：拖动画布；滚轮缩放，双击复位视图'
     }[this.tool] || '';
@@ -7717,7 +7723,7 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
         if (e.button === 1 || e.button === 2 || self.tool === 'pan' || self._space) { drag = { mode: 'pan', sx: sp[0], sy: sp[1], ox: self.view.ox, oy: self.view.oy }; c.style.cursor = 'grabbing'; return; }
         drag = { mode: 'tool', sx: sp[0], sy: sp[1], w: w, moved: false };
         if (self.tool === 'peel') { self.unfoldLayerAt(w); self.dirty = true; return; }
-        if (self.tool === 'foldcrease') { self.foldAlongCreaseAt(w); self.dirty = true; return; }
+        if (self.tool === 'foldcrease') { self.foldAlongCreaseAt(w, e.shiftKey); self.dirty = true; return; }
         if (self.tool === 'linefold') { self.dirty = true; return; }
         if (self.tool === 'line' && self.ui.mode !== 'side') { var s0 = self._snap(w); self.ui = { mode: 'drawing', a: s0.p, b: s0.p, snap: s0 }; }
         self.dirty = true;
