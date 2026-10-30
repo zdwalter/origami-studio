@@ -303,6 +303,33 @@ var fails = 0; function ok(c, m) { console.log((c ? 'ok   ' : 'FAIL ') + m); if 
   ok(ptAxis.steps === 8, '点完线就折好，记成第 8 步（共 ' + ptAxis.steps + ' 步）');
   ok(ptAxis.n > 1000 && ptAxis.bad === 0, '结果与教程第 8 步「折前鸭翼」逐点一致（' + ptAxis.bad + '/' + ptAxis.n + ' 点不同）');
 
+  // 15. 翻面要有动画（整张纸绕竖直轴翻过去，中途立起来）
+  var flip = await page.evaluate(function () {
+    var v = window.OrigamiStudio.stepView, SF = window.StepFold;
+    v.reset(1, 1); v.setTool('line');
+    v._userOp({ type: 'fold', a: [0.5, 0], b: [0, 0.5], side: [0.08, 0.08], kind: 'valley', scope: 'all' }, '折左上角', '');
+    if (v.anim) v._finishAnim();
+    var before = v.state();
+    v._userOp({ type: 'flip' }, '翻面', '');
+    var a = v.anim;
+    if (!a) return { anim: false };
+    var metaType = a.meta.type, t0 = a.t0, widths = [];
+    [0, 0.25, 0.5, 0.75, 1].forEach(function (t) {
+      a.t0 = performance.now() - t * 700;
+      var ds = v._drawables(), xs = [];
+      ds.forEach(function (d) { d.pts.forEach(function (q) { xs.push(q[0]); }); });
+      widths.push(Math.round(Math.max.apply(null, xs) - Math.min.apply(null, xs)));
+    });
+    a.t0 = t0;
+    if (v.anim) v._finishAnim();
+    var after = v.state();
+    var same = SF.totalArea(before) === SF.totalArea(after);
+    return { anim: true, metaType: metaType, widths: widths, area: same };
+  });
+  ok(flip.anim && flip.metaType === 'flip', '翻面会启动动画（meta=' + flip.metaType + '）');
+  ok(flip.widths[2] < flip.widths[0] * 0.4, '翻面动画中途整张纸立起来（宽度 ' + flip.widths[0] + ' → ' + flip.widths[2] + ' px）');
+  ok(flip.area, '翻面后纸张面积不变');
+
   ok(!logs.length, 'no console errors ' + logs.join(' | '));
   await browser.close();
   console.log(fails ? fails + ' FAILED' : 'ALL OK');

@@ -6905,7 +6905,8 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
       return faces.map(function (f) { return { pts: f.poly.map(function (p) { return self.toScreen(OG.rotate(p, ang, c)); }), face: f, back: f.flipped, light: 1, lift: 0 }; });
     }
     // 折出折痕再展开：折到一半再回到原位
-    if (m.type !== 'fold' && m.type !== 'crease') {
+    // flip 也用折页动画演（整张纸绕竖直轴翻过去，翻到一半能看到侧边）
+    if (m.type !== 'fold' && m.type !== 'crease' && m.type !== 'flip') {
       return faces.map(function (f) { return { pts: f.poly.map(self.toScreen, self), face: f, back: f.flipped, light: 1, lift: 0 }; });
     }
     var theta = m.type === 'crease' ? Math.PI * Math.sin(Math.PI * t) : Math.PI * (a.dir > 0 ? t : 1 - t);
