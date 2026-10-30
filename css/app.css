@@ -262,3 +262,11 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
   .foldbar { gap: 10px; padding: 8px 10px; }
   .vbar .vbtn:not(.icon) { padding: 0 6px; }
 }
+
+/* 步骤列表里的「谷 / 山」切换按钮 */
+#stSteps li { position: relative; }
+#stSteps li .kbtn { position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+  width: 26px; height: 26px; border-radius: 6px; border: 1px solid rgba(80,70,60,.25);
+  background: #fff; color: #6b5f52; font-size: 13px; line-height: 1; cursor: pointer; padding: 0; }
+#stSteps li .kbtn:hover { background: #e8553d; color: #fff; border-color: #e8553d; }
+#stSteps li .kbtn em { font-style: normal; }

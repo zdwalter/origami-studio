@@ -629,7 +629,9 @@
       var isFold = st.op && st.op.type === 'fold';
       var ang = isFold && st.op.angle !== undefined ? st.op.angle : (isFold ? 180 : null);
       var badge = (ang === null || ang >= 180) ? '' : '<em class="ang">' + ang + '°</em>';
-      return '<li class="' + cls + (st.user ? ' user' : '') + '" data-i="' + i + '"><div><b>' + esc(st.title || ('步骤 ' + (i + 1))) + badge + '</b><span>' + esc(st.description || '') + '</span></div></li>';
+      var isK = st.op && (st.op.type === 'fold' || st.op.type === 'crease');
+      var kindBtn = isK ? '<button class="kbtn" data-kind-i="' + i + '" title="点一下改成' + (st.op.kind === 'mountain' ? '谷折' : '山折') + '，并自动重折"><em>' + (st.op.kind === 'mountain' ? '山' : '谷') + '</em></button>' : '';
+      return '<li class="' + cls + (st.user ? ' user' : '') + '" data-i="' + i + '"><div><b>' + esc(st.title || ('步骤 ' + (i + 1))) + badge + '</b><span>' + esc(st.description || '') + '</span></div>' + kindBtn + '</li>';
     }).join('');
     var total = info && info.modelSteps !== undefined ? info.modelSteps : steps.length;
     $('stStepNo').textContent = (info ? Math.min(cur, total) : 0) + ' / ' + total;
@@ -938,6 +940,14 @@
     });
 
     // step mode
+    var stBox = $('stSteps');
+    if (stBox) stBox.addEventListener('click', function (e) {
+      var btn = e.target.closest ? e.target.closest('.kbtn') : null;
+      if (!btn) return;
+      e.stopPropagation();
+      var i = +btn.getAttribute('data-kind-i');
+      if (S.stepView) { S.stepView.setStepKind(i); renderStepList(); if (S.syncStepEditor) S.syncStepEditor(); }
+    });
     $$('#stepToolGroup .tbtn').forEach(function (b) {
       b.addEventListener('click', function () { $$('#stepToolGroup .tbtn').forEach(function (x) { x.classList.toggle('active', x === b); }); if (S.stepView) S.stepView.setTool(b.dataset.stool); });
     });

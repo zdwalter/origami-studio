@@ -63,6 +63,39 @@
   P.getSteps = function () { return this.steps.slice(); };
   P.canUndo = function () { return this.pos > 0; };
   P.canRedo = function () { return this.pos < this.history.length - 1; };
+  /**
+   * 改某一步的「谷折 / 山折」，然后从头自动重折一遍。
+   * 谷折 → 山折 会让这一折的纸翻到另一侧（层序反过来），也就是“把一层塞到后面”。
+   */
+  P.setStepKind = function (i, kind) {
+    var step = this.steps[i];
+    if (!step || !step.op) return null;
+    var t = step.op.type;
+    if (t !== 'fold' && t !== 'crease') return null;
+    if (!kind) kind = step.op.kind === 'mountain' ? 'valley' : 'mountain';
+    if (step.op.kind === kind) return kind;
+    if (this.anim) this._finishAnim();
+    var w = this.history[0].width, h = this.history[0].height;
+    var steps = this.steps.map(function (x, k) {
+      return { title: x.title, description: x.description, user: x.user,
+               op: k === i ? Object.assign({}, x.op, { kind: kind }) : x.op };
+    });
+    // 从头重放：改动只影响这一折及其之后的层序
+    var hist = [SF.create({ width: w, height: h })], metas = [], st = hist[0];
+    for (var k = 0; k < steps.length; k++) {
+      var r = SF.applyOp(st, steps[k].op);
+      if (r.error) { this.onStatus('⚠ 第 ' + (k + 1) + ' 步折不出来：' + r.error); return null; }
+      hist.push(r.state); metas.push(this._metaFor(steps[k].op, st, r)); st = r.state;
+    }
+    var keepPos = Math.min(this.pos, hist.length - 1);
+    this.steps = steps; this.history = hist; this.meta = metas;
+    this.pos = keepPos;
+    this.creases = [];
+    this._changed();
+    this.onStatus('第 ' + (i + 1) + ' 步已改成' + (kind === 'mountain' ? '山折' : '谷折') + '，并自动重折了一遍');
+    return kind;
+  };
+
   P.next = function () { if (this.anim) this._finishAnim(); if (!this.canRedo()) return; this._animate(this.pos, +1); };
   P.prev = function () { if (this.anim) this._finishAnim(); if (!this.canUndo()) return; this._animate(this.pos - 1, -1); };
   P.redo = P.next; P.undo = P.prev;

@@ -271,6 +271,14 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
   .vbar .vbtn:not(.icon) { padding: 0 6px; }
 }
 
+/* 步骤列表里的「谷 / 山」切换按钮 */
+#stSteps li { position: relative; }
+#stSteps li .kbtn { position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+  width: 26px; height: 26px; border-radius: 6px; border: 1px solid rgba(80,70,60,.25);
+  background: #fff; color: #6b5f52; font-size: 13px; line-height: 1; cursor: pointer; padding: 0; }
+#stSteps li .kbtn:hover { background: #e8553d; color: #fff; border-color: #e8553d; }
+#stSteps li .kbtn em { font-style: normal; }
+
 </style>
 </head>
 <body>
@@ -6717,6 +6725,39 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
   P.getSteps = function () { return this.steps.slice(); };
   P.canUndo = function () { return this.pos > 0; };
   P.canRedo = function () { return this.pos < this.history.length - 1; };
+  /**
+   * 改某一步的「谷折 / 山折」，然后从头自动重折一遍。
+   * 谷折 → 山折 会让这一折的纸翻到另一侧（层序反过来），也就是“把一层塞到后面”。
+   */
+  P.setStepKind = function (i, kind) {
+    var step = this.steps[i];
+    if (!step || !step.op) return null;
+    var t = step.op.type;
+    if (t !== 'fold' && t !== 'crease') return null;
+    if (!kind) kind = step.op.kind === 'mountain' ? 'valley' : 'mountain';
+    if (step.op.kind === kind) return kind;
+    if (this.anim) this._finishAnim();
+    var w = this.history[0].width, h = this.history[0].height;
+    var steps = this.steps.map(function (x, k) {
+      return { title: x.title, description: x.description, user: x.user,
+               op: k === i ? Object.assign({}, x.op, { kind: kind }) : x.op };
+    });
+    // 从头重放：改动只影响这一折及其之后的层序
+    var hist = [SF.create({ width: w, height: h })], metas = [], st = hist[0];
+    for (var k = 0; k < steps.length; k++) {
+      var r = SF.applyOp(st, steps[k].op);
+      if (r.error) { this.onStatus('⚠ 第 ' + (k + 1) + ' 步折不出来：' + r.error); return null; }
+      hist.push(r.state); metas.push(this._metaFor(steps[k].op, st, r)); st = r.state;
+    }
+    var keepPos = Math.min(this.pos, hist.length - 1);
+    this.steps = steps; this.history = hist; this.meta = metas;
+    this.pos = keepPos;
+    this.creases = [];
+    this._changed();
+    this.onStatus('第 ' + (i + 1) + ' 步已改成' + (kind === 'mountain' ? '山折' : '谷折') + '，并自动重折了一遍');
+    return kind;
+  };
+
   P.next = function () { if (this.anim) this._finishAnim(); if (!this.canRedo()) return; this._animate(this.pos, +1); };
   P.prev = function () { if (this.anim) this._finishAnim(); if (!this.canUndo()) return; this._animate(this.pos - 1, -1); };
   P.redo = P.next; P.undo = P.prev;
@@ -8225,7 +8266,9 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
       var isFold = st.op && st.op.type === 'fold';
       var ang = isFold && st.op.angle !== undefined ? st.op.angle : (isFold ? 180 : null);
       var badge = (ang === null || ang >= 180) ? '' : '<em class="ang">' + ang + '°</em>';
-      return '<li class="' + cls + (st.user ? ' user' : '') + '" data-i="' + i + '"><div><b>' + esc(st.title || ('步骤 ' + (i + 1))) + badge + '</b><span>' + esc(st.description || '') + '</span></div></li>';
+      var isK = st.op && (st.op.type === 'fold' || st.op.type === 'crease');
+      var kindBtn = isK ? '<button class="kbtn" data-kind-i="' + i + '" title="点一下改成' + (st.op.kind === 'mountain' ? '谷折' : '山折') + '，并自动重折"><em>' + (st.op.kind === 'mountain' ? '山' : '谷') + '</em></button>' : '';
+      return '<li class="' + cls + (st.user ? ' user' : '') + '" data-i="' + i + '"><div><b>' + esc(st.title || ('步骤 ' + (i + 1))) + badge + '</b><span>' + esc(st.description || '') + '</span></div>' + kindBtn + '</li>';
     }).join('');
     var total = info && info.modelSteps !== undefined ? info.modelSteps : steps.length;
     $('stStepNo').textContent = (info ? Math.min(cur, total) : 0) + ' / ' + total;
@@ -8534,6 +8577,14 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
     });
 
     // step mode
+    var stBox = $('stSteps');
+    if (stBox) stBox.addEventListener('click', function (e) {
+      var btn = e.target.closest ? e.target.closest('.kbtn') : null;
+      if (!btn) return;
+      e.stopPropagation();
+      var i = +btn.getAttribute('data-kind-i');
+      if (S.stepView) { S.stepView.setStepKind(i); renderStepList(); if (S.syncStepEditor) S.syncStepEditor(); }
+    });
     $$('#stepToolGroup .tbtn').forEach(function (b) {
       b.addEventListener('click', function () { $$('#stepToolGroup .tbtn').forEach(function (x) { x.classList.toggle('active', x === b); }); if (S.stepView) S.stepView.setTool(b.dataset.stool); });
     });

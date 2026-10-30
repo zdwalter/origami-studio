@@ -414,6 +414,41 @@ var fails = 0; function ok(c, m) { console.log((c ? 'ok   ' : 'FAIL ') + m); if 
   ok(!ortho.freeAxis, '点到点：明显斜的方向不会被强行对齐');
   ok(ortho.foldDx < 1e-9 && ortho.foldDy > 0.1, '点到点对齐后折线正好垂直于两点连线（dx=' + (ortho.foldDx || 0).toFixed(9) + '）');
 
+  // 20. 步骤列表里点「谷/山」按钮 → 自动重折
+  var kind = await page.evaluate(function () {
+    var v = window.OrigamiStudio.stepView, SF = window.StepFold;
+    v.reset(1, 1); v.setTool('line');
+    v._userOp({ type: 'fold', a: [0.5, 0], b: [0.5, 1], side: [0.2, 0.5], kind: 'valley', scope: 'all' }, '对折', '');
+    if (v.anim) v._finishAnim();
+    v._userOp({ type: 'fold', a: [0.5, 0.5], b: [1, 1], side: [0.85, 0.55], kind: 'valley', scope: 'topSheet' }, '折角', '');
+    if (v.anim) v._finishAnim();
+    window.OrigamiStudio.renderStepList && window.OrigamiStudio.renderStepList();
+    var btns = Array.from(document.querySelectorAll('#stSteps .kbtn'));
+    var last = -1;
+    v.getSteps().forEach(function (s, i) { if (s.op && (s.op.type === 'fold' || s.op.type === 'crease')) last = i; });
+    var b = btns.filter(function (x) { return +x.getAttribute('data-kind-i') === last; })[0];
+    var layersBefore = v.state().facets.map(function (f) { return f.layer; }).sort().join(',');
+    var areaBefore = SF.totalArea(v.state());
+    if (b) b.click();
+    if (v.anim) v._finishAnim();
+    var kindNow = v.getSteps()[last].op && v.getSteps()[last].op.kind;
+    var layersAfter = v.state().facets.map(function (f) { return f.layer; }).sort().join(',');
+    var areaAfter = SF.totalArea(v.state());
+    // 再点一次切回去
+    var btns2 = Array.from(document.querySelectorAll('#stSteps .kbtn'));
+    var b2 = btns2.filter(function (x) { return +x.getAttribute('data-kind-i') === last; })[0];
+    if (b2) b2.click();
+    if (v.anim) v._finishAnim();
+    return { btnCount: btns.length, kindNow: kindNow, back: v.getSteps()[last].op.kind,
+             layersBefore: layersBefore, layersAfter: layersAfter,
+             areaOk: Math.abs(areaBefore - areaAfter) < 1e-9 };
+  });
+  ok(kind.btnCount >= 2, '步骤列表里每一步折叠都有「谷/山」按钮（' + kind.btnCount + ' 个）');
+  ok(kind.kindNow === 'mountain', '点一下把这一折改成山折');
+  ok(kind.layersBefore !== kind.layersAfter, '改山折后自动重折，层序跟着变（' + kind.layersBefore + ' → ' + kind.layersAfter + '）');
+  ok(kind.areaOk, '改谷/山重折后纸张面积不变');
+  ok(kind.back === 'valley', '再点一次切回谷折');
+
   ok(!logs.length, 'no console errors ' + logs.join(' | '));
   await browser.close();
   console.log(fails ? fails + ' FAILED' : 'ALL OK');
