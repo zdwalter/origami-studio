@@ -629,15 +629,29 @@
       var isFold = st.op && st.op.type === 'fold';
       var ang = isFold && st.op.angle !== undefined ? st.op.angle : (isFold ? 180 : null);
       var badge = (ang === null || ang >= 180) ? '' : '<em class="ang">' + ang + '°</em>';
-      var isK = st.op && (st.op.type === 'fold' || st.op.type === 'crease');
-      var kindBtn = isK ? '<button class="kbtn" data-kind-i="' + i + '" title="点一下改成' + (st.op.kind === 'mountain' ? '谷折' : '山折') + '，并自动重折"><em>' + (st.op.kind === 'mountain' ? '山' : '谷') + '</em></button>' : '';
-      return '<li class="' + cls + (st.user ? ' user' : '') + '" data-i="' + i + '"><div><b>' + esc(st.title || ('步骤 ' + (i + 1))) + badge + '</b><span>' + esc(st.description || '') + '</span></div>' + kindBtn + '</li>';
+      return '<li class="' + cls + (st.user ? ' user' : '') + '" data-i="' + i + '"><div><b>' + esc(st.title || ('步骤 ' + (i + 1))) + badge + '</b><span>' + esc(st.description || '') + '</span></div></li>';
     }).join('');
     var total = info && info.modelSteps !== undefined ? info.modelSteps : steps.length;
     $('stStepNo').textContent = (info ? Math.min(cur, total) : 0) + ' / ' + total;
     $('stUndo').disabled = $('stPrev').disabled = !v.canUndo(); $('stRedo').disabled = $('stNext').disabled = !v.canRedo();
     var curEl = box.querySelector('.current'); if (curEl && curEl.scrollIntoView) curEl.scrollIntoView({ block: 'nearest' });
   }
+  /**
+   * 把分步折叠的折痕图送进「折痕设计」，并建立联动：
+   * 在设计里改某条折痕的 山/谷，会按 stage 找到对应那一步、改向并自动重折。
+   */
+  function stepToDesign() {
+    var v = S.stepView; if (!v) return;
+    if (v.anim) v._finishAnim();
+    var doc = v.getCreasePattern();
+    if (!doc || !doc.lines || !doc.lines.length) { toast('还没有折痕，先折几下吧', true); return; }
+    var name = ($('stepModelSel').selectedOptions[0] && $('stepModelSel').value ? $('stepModelSel').selectedOptions[0].textContent.replace(/（.*$/, '') : '分步折叠') + ' 折痕';
+    doc.name = doc.name || name;
+    switchMode('design');
+    loadDoc(doc, { foldPercent: 0.9 });
+    toast('折痕已送进折痕设计：点折痕改山/谷，分步折叠里那一步会自动改向并重折');
+  }
+
   function stepTo3D() {
     var v = S.stepView; if (!v) return;
     if (v.anim) v._finishAnim();
@@ -940,14 +954,6 @@
     });
 
     // step mode
-    var stBox = $('stSteps');
-    if (stBox) stBox.addEventListener('click', function (e) {
-      var btn = e.target.closest ? e.target.closest('.kbtn') : null;
-      if (!btn) return;
-      e.stopPropagation();
-      var i = +btn.getAttribute('data-kind-i');
-      if (S.stepView) { S.stepView.setStepKind(i); renderStepList(); if (S.syncStepEditor) S.syncStepEditor(); }
-    });
     $$('#stepToolGroup .tbtn').forEach(function (b) {
       b.addEventListener('click', function () { $$('#stepToolGroup .tbtn').forEach(function (x) { x.classList.toggle('active', x === b); }); if (S.stepView) S.stepView.setTool(b.dataset.stool); });
     });
@@ -976,6 +982,7 @@
     });
     $('stPaper').addEventListener('change', function () { newPaper(this.value); });
     $('stTo3D').addEventListener('click', stepTo3D);
+    $('stToDesign').addEventListener('click', stepToDesign);
     $('st3DAngle').addEventListener('input', function () {
       if (!S.stepView) return;
       S.stepView.setDisplayAngle(+this.value);

@@ -220,10 +220,30 @@
     if (CPg && typeof CPg.normalize === 'function') out = CPg.normalize(lines, { width: w, height: h });
     else out = fallbackNormalize(lines, w, h);
     out = mergeCollinear(out, Math.max(w, h));
+    // 归一化会重建线条（可能合并/拆分），这里把 stage / foldAngle 按几何位置重新挂回去
+    var src = (lines || []).filter(function (q) { return q.stage !== undefined || q.foldAngle !== undefined; });
+    function sameInfLine(q, l) {
+      var q1 = q.a, q2 = q.b, l1 = l.a, l2 = l.b;
+      var dq = [q2[0] - q1[0], q2[1] - q1[1]], dl = [l2[0] - l1[0], l2[1] - l1[1]];
+      var Lq = Math.hypot(dq[0], dq[1]), Ll = Math.hypot(dl[0], dl[1]);
+      if (Lq < 1e-12 || Ll < 1e-12) return false;
+      var crs = Math.abs(dq[0] * dl[1] - dq[1] * dl[0]) / (Lq * Ll);
+      if (crs > 1e-6) return false;                                   // 不平行
+      var off = Math.abs((l1[0] - q1[0]) * dq[1] - (l1[1] - q1[1]) * dq[0]) / Lq;
+      return off < 1e-6 * Math.max(w, h);                             // 同一条直线
+    }
     return out.map(function (l) {
       var o = { a: [l.a[0], l.a[1]], b: [l.b[0], l.b[1]], type: l.type };
       if (isMV(l.type)) o.angle = (l.angle === undefined || l.angle === null) ? 180 : l.angle;
       else if (l.angle) o.angle = l.angle;
+      for (var i = 0; i < src.length; i++) {
+        var q = src[i];
+        if (q.type !== l.type) continue;
+        if (!sameInfLine(q, l)) continue;
+        if (q.stage !== undefined) o.stage = q.stage;
+        if (q.foldAngle !== undefined) o.foldAngle = q.foldAngle;
+        break;
+      }
       return o;
     });
   };
@@ -1111,6 +1131,19 @@
       this.op = null;
       var marked = op.marked, keys = Object.keys(marked);
       if (!keys.length) return;
+      // 「改类型」是点一下改一条：只在“点”而不是“划过”时，收窄成离点击处最近的那一条，
+      // 否则多层折痕重叠的地方一点会改掉一串折痕（分步折叠里会连带改好几步）。
+      if (op.mode !== 'erase' && op.path && op.path.length <= 2 && keys.length > 1) {
+        var pp = this.toPaper(s), bestK = null, bestD = Infinity;
+        keys.forEach(function (k) {
+          var l = self.doc.lines[+k];
+          var d = OG.pointSegDist(pp, l.a, l.b);
+          if (d < bestD) { bestD = d; bestK = k; }
+        });
+        var one = {}; if (bestK !== null) one[bestK] = true;
+        marked = one; keys = Object.keys(marked);
+        if (!keys.length) return;
+      }
       if (op.mode === 'erase') {
         this._commit(this.doc.lines.filter(function (l, i) { return !marked[i]; }));
         this._status('已擦除 ' + keys.length + ' 条折痕');

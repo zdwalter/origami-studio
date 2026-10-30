@@ -313,7 +313,39 @@
     ctx.restore();
   };
   P.state = function () { return this.history[this.pos]; };
-  P.getCreasePattern = function () { return SF.creasePattern(this.state(), this.model ? this.model.name + ' 折痕' : '分步折叠折痕'); };
+  /** 折痕图：每条折痕带上“是第几步折出来的”（1 基，按步骤号而不是按折叠次数） */
+  P.getCreasePattern = function () {
+    var cp = SF.creasePattern(this.state(), this.model ? this.model.name + ' 折痕' : '分步折叠折痕');
+    var stepOf = this._creaseStepMap();
+    cp.lines.forEach(function (l) {
+      if (l.type === 'B') return;
+      var k = (Math.min(l.a[0], l.b[0]).toFixed(6) + ',' + Math.min(l.a[1], l.b[1]).toFixed(6) + ',' +
+               Math.max(l.a[0], l.b[0]).toFixed(6) + ',' + Math.max(l.a[1], l.b[1]).toFixed(6) + ',' + l.type);
+      if (stepOf[k]) l.stage = stepOf[k];
+    });
+    return cp;
+  };
+  /** 重放一遍步骤，记录每条折痕是哪一步产生的：key → 步号(1 基) */
+  P._creaseStepMap = function () {
+    var out = {};
+    var st = SF.create({ width: this.history[0].width, height: this.history[0].height });
+    var before = {};
+    function keyOf(c) {
+      var A = c.a, B = c.b;
+      return (Math.min(A[0], B[0]).toFixed(6) + ',' + Math.min(A[1], B[1]).toFixed(6) + ',' +
+              Math.max(A[0], B[0]).toFixed(6) + ',' + Math.max(A[1], B[1]).toFixed(6) + ',' + c.type);
+    }
+    this.steps.forEach(function (step, i) {
+      var r = SF.applyOp(st, step.op);
+      if (r.error) return;
+      st = r.state;
+      st.creases.forEach(function (c) {
+        var k = keyOf(c);
+        if (before[k] === undefined) { before[k] = i + 1; out[k] = i + 1; }
+      });
+    });
+    return out;
+  };
   /** 全部步骤折完后的折痕图（保存作品时做缩略图用） */
   P.getFinalCreasePattern = function () {
     var st = this.history.length ? this.history[this.history.length - 1] : this.state();
