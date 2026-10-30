@@ -6702,13 +6702,14 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
   var bases = [
     {
       id: 'waterbomb', name: '水雷基本型（双三角）',
-      description: '两条对角线压痕 → 沿一条对角线对折 → 再对折成四层三角（尖朝右）',
+      description: '两条对角线压痕 → 沿一条对角线对折 → 再对折成四层三角（尖朝上、开口在下方，和图纸一致）',
       width: 1, height: 1,
+      // 坐标是旋转过的：折完三角尖朝上、开口（纸边）在下方，和折纸图纸的摆法一致
       steps: [
-        { title: '压出对角线', description: '沿一条对角线压出折痕再展开。', op: { type: 'crease', a: [0, 0], b: [1, 1], side: [0.85, 0.15], kind: 'valley', scope: 'all' } },
-        { title: '压出另一条对角线', description: '另一条对角线也压出折痕。', op: { type: 'crease', a: [0, 1], b: [1, 0], side: [0.15, 0.15], kind: 'valley', scope: 'all' } },
-        { title: '沿对角线对折', description: '沿对角线对折成一个大三角形。', op: { type: 'fold', a: [0, 0], b: [1, 1], side: [0.85, 0.15], kind: 'valley', scope: 'all' } },
-        { title: '再对折，收成四层三角', description: '把三角形再对折成四层的直角三角形（水雷基本型）。', op: { type: 'fold', a: [0, 1], b: [0.5, 0.5], side: [1, 1], kind: 'valley', scope: 'all' } }
+        { title: '压出对角线', description: '沿左上—右下这条对角线压出折痕再展开。', op: { type: 'crease', a: [0, 1], b: [1, 0], side: [0.15, 0.15], kind: 'valley', scope: 'all' } },
+        { title: '压出另一条对角线', description: '另一条对角线也压出折痕。', op: { type: 'crease', a: [1, 1], b: [0, 0], side: [0.15, 0.85], kind: 'valley', scope: 'all' } },
+        { title: '沿对角线对折', description: '沿对角线对折成一个大三角形。', op: { type: 'fold', a: [0, 1], b: [1, 0], side: [0.15, 0.15], kind: 'valley', scope: 'all' } },
+        { title: '再对折，收成四层三角', description: '把三角形再对折成四层的直角三角形：尖朝上、开口在下方（水雷基本型）。', op: { type: 'fold', a: [1, 1], b: [0.5, 0.5], side: [1, 0], kind: 'valley', scope: 'all' } }
       ]
     },
     {
