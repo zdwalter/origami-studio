@@ -623,6 +623,43 @@ var fails = 0; function ok(c, m) { console.log((c ? 'ok   ' : 'FAIL ') + m); if 
   ok(creaseKind.v.kind === 'valley', '点谷折折痕 → 按谷折折（' + creaseKind.v.status + '）');
   ok(creaseKind.inv.kind === 'mountain', 'Shift 点谷折折痕 → 反向折成山折');
 
+  // 26. A4 纸也能插入水雷基本型（按纸张比例拉伸，层结构/山谷不变）
+  var baseA4 = await page.evaluate(async function () {
+    var OS = window.OrigamiStudio, v = OS.stepView;
+    window.confirm = function () { return true; };
+    document.querySelector('.mode-tab[data-mode="step"]').click();
+    await new Promise(function (r) { setTimeout(r, 200); });
+    var sel = document.getElementById('stPaper');
+    var hasA4 = Array.prototype.some.call(sel.options, function (o) { return o.value === 'a4'; });
+    sel.value = 'a4'; sel.dispatchEvent(new Event('change', { bubbles: true }));
+    await new Promise(function (r) { setTimeout(r, 500); });
+    v.reset(v.state().width, v.state().height);
+    document.getElementById('stBase').click();
+    await new Promise(function (r) { setTimeout(r, 200); });
+    var btn = document.querySelector('#baseMenu [data-base="waterbomb"]');
+    if (btn) btn.click();
+    await new Promise(function (r) { setTimeout(r, 600); });
+    if (v.anim) v._finishAnim();
+    var st = v.state();
+    var area = window.StepFold.totalArea(st);
+    var paperArea = st.width * st.height;
+    // 还原成正方形纸，别影响后面的用例
+    sel.value = 'square'; sel.dispatchEvent(new Event('change', { bubbles: true }));
+    await new Promise(function (r) { setTimeout(r, 300); });
+    return {
+      hasA4: hasA4,
+      paper: +st.width.toFixed(4) + 'x' + (+st.height.toFixed(4)),
+      facets: st.facets.length,
+      layers: st.facets.map(function (f) { return f.layer; }).sort(),
+      areaOk: Math.abs(area - paperArea) < 1e-6,
+      vm: st.creases.map(function (c) { return c.type; }).sort().join(''),
+      spineVertical: st.creases.some(function (c) { return c.type === 'M' && Math.abs(c.a[0] - c.b[0]) < 1e-9; })
+    };
+  });
+  ok(baseA4.hasA4 && baseA4.paper === '0.7071x1', '纸张可以选 A4（1:√2）');
+  ok(baseA4.facets === 5 && baseA4.areaOk, 'A4 纸上也能插入水雷基本型：' + baseA4.facets + ' 片、面积和纸一致');
+  ok(baseA4.vm === 'MVV' && baseA4.spineVertical, 'A4 版本山谷属性不变（对角线谷折、中脊山折）');
+
   ok(!logs.length, 'no console errors ' + logs.join(' | '));
   await browser.close();
   console.log(fails ? fails + ' FAILED' : 'ALL OK');
