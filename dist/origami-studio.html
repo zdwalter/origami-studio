@@ -7185,15 +7185,17 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
         };
       });
       st0.nextId = st0.facets.length + 1;
-      st0.creases = (base.state.creases || []).map(function (c) {
-        var cc = { a: at(c.a), b: at(c.b), type: c.type, angle: c.angle == null ? 180 : c.angle };
-        // 长方形纸（A4）这套折法：中脊不是山折，真正压在纸条上方那条横折痕才是山折
-        if (strip && Math.abs(c.a[0] - c.b[0]) < 1e-9) cc.type = 'V';
-        return cc;
-      });
       if (strip) {
-        // 纸条往上翻的那条横折痕 = 山折
-        st0.creases.push({ a: [0, side], b: [w, side], type: 'M', angle: 180 });
+        // 长方形纸（A4）：折痕 = 两条对角线（谷）+ **整张纸正中间那条横山折**（y = 纸高/2）
+        // 竖向中脊不是折痕（那是折出来的边），所以不放
+        st0.creases = (base.state.creases || [])
+          .filter(function (c) { return Math.abs(c.a[0] - c.b[0]) > 1e-9; })
+          .map(function (c) { return { a: at(c.a), b: at(c.b), type: 'V', angle: c.angle == null ? 180 : c.angle }; });
+        st0.creases.push({ a: [0, h / 2], b: [w, h / 2], type: 'M', angle: 180 });
+      } else {
+        st0.creases = (base.state.creases || []).map(function (c) {
+          return { a: at(c.a), b: at(c.b), type: c.type, angle: c.angle == null ? 180 : c.angle };
+        });
       }
       if (strip) {
         st0.facets.push({ id: st0.facets.length, poly: strip.map(function (q) { return q.slice(); }),
