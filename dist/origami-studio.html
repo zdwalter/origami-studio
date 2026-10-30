@@ -6480,23 +6480,32 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
     });
   })();
   // ---------------------------------------------------------------- 鸭翼滑翔机（Canard，A4 长方形纸）
-  // 10 步原样取自用户折好后导出的工程文件（steps 数组）。
+  // 17 步原样取自用户折好后导出的工程文件（steps 数组，含 165° / 85° / 80° 折角）。
+  // 坐标保留完整双精度：折线贴着纸边时，四舍五入会改变切分结果。
   (function () {
     models.push({
       id: 'canard', name: '鸭翼滑翔机（Canard）', difficulty: 3, frontColor: '#3aa757',
-      description: '图纸 9 格的鸭翼纸飞机：中线 → 两上角折到中线 → 翻面 → 两侧收边 → 翻面 → 折出前后鸭翼。步骤取自实际折叠数据。',
+      displayAngles: { 13: 165, 14: 85, 16: 80 },
+      description: '图纸 9 格的鸭翼纸飞机：中线 → 两上角 → 翻面 → 两侧收边 → 折前鸭翼 → 机头折下 → 压出鸭翼折痕 → 沿中线 165° → 两侧机翼 85°/80°。步骤取自实际折叠数据。',
       width: Math.SQRT1_2, height: 1,
       steps: [
-        { title: '折出中线', description: '沿中线压出折痕再展开（用「压痕」按钮一步就能做）。', op: { type: 'crease', a: [0.353553, 0], b: [0.353553, 1], side: [0.176777, 0.5], kind: 'valley', scope: 'all' } },
-        { title: '折左上角', description: '左上角折到中线上，机头变尖。', op: { type: 'fold', a: [0.353553, 0], b: [0, 0.353553], side: [0.03, 0.03], kind: 'valley', scope: 'all' } },
-        { title: '折右上角', description: '右上角同样折到中线。', op: { type: 'fold', a: [0.353553, 0], b: [0.707107, 0.353553], side: [0.677107, 0.03], kind: 'valley', scope: 'all' } },
+        { title: '折出中线', description: '沿中线压出折痕再展开（用「压痕」按钮一步就能做）。', op: { type: 'crease', a: [0.353553, 0.0], b: [0.353553, 1.0], side: [0.176777, 0.5], kind: 'valley', scope: 'all' } },
+        { title: '折左上角', description: '左上角折到中线上，机头变尖。', op: { type: 'fold', a: [0.353553, 0.0], b: [0.0, 0.353553], side: [0.03, 0.03], kind: 'valley', scope: 'all' } },
+        { title: '折右上角', description: '右上角同样折到中线。', op: { type: 'fold', a: [0.353553, 0.0], b: [0.707107, 0.353553], side: [0.677107, 0.03], kind: 'valley', scope: 'all' } },
         { title: '翻面', description: '把纸整个翻过来。', op: { type: 'flip' } },
-        { title: '收左下角', description: '左下角沿斜线收到中线上。', op: { type: 'fold', a: [0.353554, 0], b: [-0.029132, 0.923879], side: [0.176777, 0.176776], kind: 'valley', scope: 'all' } },
-        { title: '收右下角', description: '右下角同理，两侧对称。', op: { type: 'fold', a: [0.353554, -0], b: [0.736236, 0.92388], side: [0.53033, 0.176777], kind: 'valley', scope: 'all' } },
+        { title: '收左下角', description: '左下角沿斜线收到中线上。', op: { type: 'fold', a: [0.353554, 0.0], b: [-0.029132, 0.923879], side: [0.176777, 0.176776], kind: 'valley', scope: 'all' } },
+        { title: '收右下角', description: '右下角同理，两侧对称。', op: { type: 'fold', a: [0.353554, 0.0], b: [0.736236, 0.92388], side: [0.53033, 0.176777], kind: 'valley', scope: 'all' } },
         { title: '翻面', description: '翻面。', op: { type: 'flip' } },
-        { title: '折前鸭翼', description: '只取最上层，折出前鸭翼。', op: { type: 'fold', a: [0.437494, 0.205436], b: [0.538842, 0.450998], side: [0.426777, 0.353554], kind: 'valley', scope: 'topSheet' } },
-        { title: '折后鸭翼', description: '折出另一侧鸭翼。', op: { type: 'fold', a: [0.168394, 0.451164], b: [0.269403, 0.205438], side: [0.28033, 0.353553], kind: 'valley', scope: 'topSheet' } },
-        { title: '翻面', description: '翻面，成品正面朝上。', op: { type: 'flip' } },
+        { title: '折前鸭翼（右）', description: '只取最上层，沿斜线折出前鸭翼的一侧。', op: { type: 'fold', a: [0.35355284527585396, 1.5472414582884397e-07], b: [0.7071067811865474, 0.8535486429239637], side: [0.42736193772931197, 0.33856070070107397], kind: 'valley', scope: 'topSheet' } },
+        { title: '折前鸭翼（左）', description: '另一侧鸭翼同样折出。', op: { type: 'fold', a: [-2.220446049250313e-16, 0.8535555460738357], b: [0.35355262646319363, 3.7353680615304086e-07], side: [0.2870783849995983, 0.24051429184069212], kind: 'valley', scope: 'topSheet' } },
+        { title: '翻面', description: '翻面。', op: { type: 'flip' } },
+        { title: '机头折下', description: '把机头部分沿水平线折下来。', op: { type: 'fold', a: [0.8535523229630233, 0.25000133544401937], b: [-0.14644551574621845, 0.24999833098421378], side: [0.35355415472335383, 3.7353680615304086e-07], kind: 'valley', scope: 'all' } },
+        { title: '压出鸭翼折痕', description: '只取最上层，压出鸭翼的折痕（折好即展开）。', op: { type: 'fold', a: [-0.05092333271986765, 0.2993571974364407], b: [0.7567519199854313, 0.29680376199376374], side: [0.353552652493451, 0.4999992928914269], kind: 'valley', scope: 'topSheet' } },
+        { title: '翻面', description: '翻面。', op: { type: 'flip' } },
+        { title: '沿中线对折（165°）', description: '沿中线山折到 165°，机身变薄但仍留有厚度。', op: { type: 'fold', a: [0.35355339059327356, 1.0], b: [0.35355339059327356, 0.0], side: [-2.220446049250313e-16, 0.9267777730369178], kind: 'valley', scope: 'all', angle: 165 } },
+        { title: '折起右机翼（85°）', description: '只取最上层，把右机翼折起 85°。', op: { type: 'fold', a: [0.4695010982142787, 1.3882350436906647], b: [0.42192659287644513, 0.34266330112592314], side: [0.7071067811865474, 0.8535555460738357], kind: 'valley', scope: 'topSheet', angle: 85 } },
+        { title: '翻面', description: '翻面。', op: { type: 'flip' } },
+        { title: '折起左机翼（80°）', description: '另一侧机翼折起 80°，两侧形成上反角。完成！', op: { type: 'fold', a: [0.4695080013641505, 0.34265984955098694], b: [0.4219196897265739, 1.3882315921157289], side: [0.1843209099041767, 0.8535486429239637], kind: 'valley', scope: 'topSheet', angle: 80 } },
       ]
     });
   })();

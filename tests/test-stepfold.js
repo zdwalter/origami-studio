@@ -409,5 +409,42 @@ SM.list().forEach(function (meta) {
     ok(Math.abs(area - 1) < 1e-6, '面积守恒（' + area.toFixed(4) + '）');
   }
 })();
+
+// ---- 「鸭翼滑翔机（Canard）」17 步：逐阶段与用户按图纸折好后导出的工程文件比对 ----
+(function () {
+  var fs = null, path = null;
+  try { fs = require('fs'); path = require('path'); } catch (e) { return; }
+  var file = path && path.join(__dirname, 'fixtures', 'canard-user.json');
+  if (!fs || !file || !fs.existsSync(file)) return;
+  var ref = JSON.parse(fs.readFileSync(file, 'utf8'));
+  function canon(l) {
+    var dx = l.b[0] - l.a[0], dy = l.b[1] - l.a[1], L = Math.hypot(dx, dy);
+    var ang = Math.atan2(dy, dx) * 180 / Math.PI;
+    while (ang < 0) ang += 180; while (ang >= 180) ang -= 180;
+    var nx = -dy / L, ny = dx / L, off = nx * l.a[0] + ny * l.a[1];
+    if (ang > 90) { ang -= 180; off = -off; }
+    return { ang: Math.abs(ang), off: off, type: l.type };
+  }
+  var m = SM.get('canard'), st = SF.create({ width: m.width, height: m.height });
+  var bad = [], foldNo = 0;
+  m.steps.forEach(function (step) {
+    var isFold = step.op && (step.op.type === 'fold' || step.op.type === 'crease');
+    if (isFold) foldNo++;
+    var r = SF.applyOp(st, step.op);
+    if (r.error) { bad.push(step.title + ' 应用失败'); return; }
+    st = r.state;
+  });
+  var ours = SF.creasePattern(st, 'x').lines.filter(function (l) { return l.type !== 'B'; }).map(canon);
+  var theirs = (ref.doc.lines || []).filter(function (l) { return l.type !== 'B'; }).map(canon);
+  var used = [], hit = 0;
+  ours.forEach(function (g) {
+    for (var i = 0; i < theirs.length; i++) {
+      if (used[i]) continue;
+      if (Math.abs(g.ang - theirs[i].ang) < 2.5 && Math.abs(g.off - theirs[i].off) < 0.03 && g.type === theirs[i].type) { used[i] = 1; hit++; return; }
+    }
+  });
+  ok(bad.length === 0 && hit === theirs.length,
+     '鸭翼滑翔机：17 步折完后的折痕与用户工程文件逐条一致（' + hit + '/' + theirs.length + '）');
+})();
 console.log(passes + ' passed, ' + fails + ' failed');
 process.exit(fails ? 1 : 0);
