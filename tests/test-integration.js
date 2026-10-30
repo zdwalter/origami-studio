@@ -12,7 +12,7 @@ var fails = 0; function ok(c, m) { console.log((c ? 'ok   ' : 'FAIL ') + m); if 
   await page.setViewport({ width: 1600, height: 960 });
   var logs = [];
   page.on('console', function (m) { if (m.type() === 'error') logs.push(m.text()); });
-  page.on('pageerror', function (e) { logs.push('[pageerror] ' + e.message); });
+  page.on('pageerror', function (e) { logs.push('[pageerror] ' + e.message + '\n' + (e.stack || '').split('\n').slice(0, 4).join('\n')); });
   page.on('dialog', async function (d) { await d.accept(d.type() === 'prompt' ? '测试作品' : undefined); });
   var cdp = await page.createCDPSession();
   await cdp.send('Page.setDownloadBehavior', { behavior: 'allow', downloadPath: DL });
@@ -573,12 +573,18 @@ var fails = 0; function ok(c, m) { console.log((c ? 'ok   ' : 'FAIL ') + m); if 
       facets: st.facets.length,
       paper: st.width + 'x' + st.height,
       area: +window.StepFold.totalArea(st).toFixed(6),
+      layers: st.facets.map(function (f) { return f.layer; }).sort(),
+      spine: (function () {
+        // 正面两片翻片在中脊处相接 → 应该有一道竖折痕
+        return st.creases.some(function (c) { return Math.abs(c.a[0] - c.b[0]) < 1e-9; });
+      })(),
       titles: v.getSteps().map(function (s) { return s.title; })
     };
   });
   ok(baseIns.menuShown && baseIns.names.indexOf('waterbomb') >= 0, '「插入基本型」菜单里有水雷基本型（' + (baseIns.names || []).join(',') + '）');
-  ok(baseIns.steps === 4 && baseIns.facets === 4, '插入后自动折好 4 步、得到四层三角形（' + baseIns.steps + ' 步 / ' + baseIns.facets + ' 片）');
+  ok(baseIns.steps >= 1 && baseIns.facets === 5, '插入后得到水雷基本型（正反 5 片、4 层、中间一条脊）：' + baseIns.steps + ' 步 / ' + baseIns.facets + ' 片 / 层 ' + (baseIns.layers || []));
   ok(baseIns.paper === '1x1' && Math.abs(baseIns.area - 1) < 1e-6, '基本型用的是正方形纸且面积守恒（' + baseIns.paper + ' / ' + baseIns.area + '）');
+  ok(baseIns.spine, '水雷基本型带中脊折痕（正面两片翻片）');
 
   // 25. 「点折痕折」按折痕自己的山/谷折（Shift 反向），不看工具栏
   var creaseKind = await page.evaluate(async function () {

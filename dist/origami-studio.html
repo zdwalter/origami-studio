@@ -6702,15 +6702,28 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
   var bases = [
     {
       id: 'waterbomb', name: '水雷基本型（双三角）',
-      description: '两条对角线压痕 → 沿一条对角线对折 → 再对折成四层三角（尖朝上、开口在下方，和图纸一致）',
+      description: '真正的收拢结果：三角尖朝上、开口在下方，4 层、中间一条脊（正面是两片翻片）',
       width: 1, height: 1,
-      // 坐标是旋转过的：折完三角尖朝上、开口（纸边）在下方，和折纸图纸的摆法一致
-      steps: [
-        { title: '压出对角线', description: '沿左上—右下这条对角线压出折痕再展开。', op: { type: 'crease', a: [0, 1], b: [1, 0], side: [0.15, 0.15], kind: 'valley', scope: 'all' } },
-        { title: '压出另一条对角线', description: '另一条对角线也压出折痕。', op: { type: 'crease', a: [1, 1], b: [0, 0], side: [0.15, 0.85], kind: 'valley', scope: 'all' } },
-        { title: '沿对角线对折', description: '沿对角线对折成一个大三角形。', op: { type: 'fold', a: [0, 1], b: [1, 0], side: [0.15, 0.15], kind: 'valley', scope: 'all' } },
-        { title: '再对折，收成四层三角', description: '把三角形再对折成四层的直角三角形：尖朝上、开口在下方（水雷基本型）。', op: { type: 'fold', a: [1, 1], b: [0.5, 0.5], side: [1, 0], kind: 'valley', scope: 'all' } }
-      ]
+      // 用“折叠状态”直接给出（不是对折两次的近似）：正面两片翻片在中脊处相接，折痕就是中线和两条对角线
+      state: {
+        facets: [
+          // 正面两片翻片（右下角的四分之一张纸被中线分成两半，正好是三角的两半）
+          { poly: [[0.5, 1], [0, 1], [0.5, 0.5]], T: { m: [1, 0, 0, 1], t: [0, 0] }, layer: 3 },
+          { poly: [[1, 1], [0.5, 1], [0.5, 0.5]], T: { m: [1, 0, 0, 1], t: [0, 0] }, layer: 3 },
+          // 中间两层：整块四分之一张纸，转 180° / -90° 叠上去
+          { poly: [[0, 0], [1, 0], [0.5, 0.5]], T: { m: [-1, 0, 0, -1], t: [1, 1] }, layer: 1 },
+          { poly: [[0, 1], [0, 0], [0.5, 0.5]], T: { m: [0, -1, 1, 0], t: [0, 1] }, layer: 2 },
+          // 最后一层：再转 90°
+          { poly: [[1, 0], [1, 1], [0.5, 0.5]], T: { m: [0, 1, -1, 0], t: [1, 0] }, layer: 0 }
+        ],
+        creases: [
+          { a: [0, 0], b: [1, 1], type: 'V', angle: 180 },
+          { a: [0, 1], b: [1, 0], type: 'V', angle: 180 },
+          { a: [0.5, 0], b: [0.5, 1], type: 'V', angle: 180 },
+          { a: [0, 0.5], b: [1, 0.5], type: 'V', angle: 180 }
+        ],
+        steps: [{ title: '收拢成水雷基本型', description: '两条对角线 + 一条中线压痕后，撑开收拢：正面是两片翻片，中间是中脊。' }]
+      }
     },
     {
       id: 'squarebase', name: '正方基本型（四层正方形）',
@@ -6726,7 +6739,8 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
       ]
     }
   ];
-  function basesList() { return bases.map(function (b) { return { id: b.id, name: b.name, description: b.description, steps: b.steps.length, width: b.width, height: b.height }; }); }
+  function baseStepCount(b) { return (b.steps || (b.state && b.state.steps) || []).length; }
+  function basesList() { return bases.map(function (b) { return { id: b.id, name: b.name, description: b.description, steps: baseStepCount(b), width: b.width, height: b.height }; }); }
   function getBase(id) { for (var i = 0; i < bases.length; i++) if (bases[i].id === id) return JSON.parse(JSON.stringify(bases[i])); return null; }
 
   function list() { return models.map(function (m) { return { id: m.id, name: m.name, difficulty: m.difficulty, description: m.description, steps: m.steps.length }; }); }
@@ -7137,7 +7151,9 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
    * 已有步骤时先问一下（会覆盖），因为基本型必须从整张纸开始。
    */
   P.insertBase = function (base) {
-    if (!base || !base.steps || !base.steps.length) return false;
+    if (!base) return false;
+    var stepList = base.steps || (base.state && base.state.steps) || [];
+    if (!stepList.length) return false;
     if (this.steps.length) {
       var n = this.steps.length;
       if (!window.confirm('当前已有 ' + n + ' 步。插入基本型会清空这些步骤，从整张纸重新折。要继续吗？')) return false;
@@ -7145,9 +7161,31 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
     if (this.anim) this._finishAnim();
     var w = base.width || 1, h = base.height || 1;
     this.reset(w, h);
+    // 有 state 的（真正的收拢结果）直接放进去，算作一步
+    if (base.state && base.state.facets && base.state.facets.length) {
+      var st0 = SF.clone(this.history[0]);
+      st0.facets = base.state.facets.map(function (f, i) {
+        return { id: i, poly: f.poly.map(function (q) { return q.slice(); }), T: { m: f.T.m.slice(), t: f.T.t.slice() }, layer: f.layer };
+      });
+      st0.nextId = st0.facets.length + 1;
+      st0.creases = (base.state.creases || []).map(function (c) {
+        return { a: c.a.slice(), b: c.b.slice(), type: c.type, angle: c.angle == null ? 180 : c.angle };
+      });
+      if (SF.compactLayers) SF.compactLayers(st0);
+      this.history.push(st0);
+      this.steps.push({ title: (base.state.steps && base.state.steps[0] && base.state.steps[0].title) || base.name,
+                        description: (base.state.steps && base.state.steps[0] && base.state.steps[0].description) || base.description,
+                        op: { type: 'base' }, user: true });
+      this.meta.push({ type: 'instant' });
+      this.pos = this.history.length - 1;
+      this._fit(true);
+      this._changed();
+      this.onStatus('已插入「' + base.name + '」：4 层、中间一条脊，可以接着往下折');
+      return true;
+    }
     var s = this.history[0];
-    for (var i = 0; i < base.steps.length; i++) {
-      var st = base.steps[i], r = SF.applyOp(s, st.op);
+    for (var i = 0; i < stepList.length; i++) {
+      var st = stepList[i], r = SF.applyOp(s, st.op);
       if (r.error) { this.onStatus('⚠ 基本型第 ' + (i + 1) + ' 步折不出来：' + r.error); return false; }
       this.history.push(r.state);
       this.steps.push({ title: st.title, description: st.description, op: st.op, user: true });
@@ -7157,7 +7195,7 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
     this.pos = this.history.length - 1;
     this._fit(true);
     this._changed();
-    this.onStatus('已插入「' + base.name + '」：共 ' + base.steps.length + ' 步，可以接着往下折');
+    this.onStatus('已插入「' + base.name + '」：共 ' + stepList.length + ' 步，可以接着往下折');
     return true;
   };
 

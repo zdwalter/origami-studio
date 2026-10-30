@@ -262,15 +262,28 @@
   var bases = [
     {
       id: 'waterbomb', name: '水雷基本型（双三角）',
-      description: '两条对角线压痕 → 沿一条对角线对折 → 再对折成四层三角（尖朝上、开口在下方，和图纸一致）',
+      description: '真正的收拢结果：三角尖朝上、开口在下方，4 层、中间一条脊（正面是两片翻片）',
       width: 1, height: 1,
-      // 坐标是旋转过的：折完三角尖朝上、开口（纸边）在下方，和折纸图纸的摆法一致
-      steps: [
-        { title: '压出对角线', description: '沿左上—右下这条对角线压出折痕再展开。', op: { type: 'crease', a: [0, 1], b: [1, 0], side: [0.15, 0.15], kind: 'valley', scope: 'all' } },
-        { title: '压出另一条对角线', description: '另一条对角线也压出折痕。', op: { type: 'crease', a: [1, 1], b: [0, 0], side: [0.15, 0.85], kind: 'valley', scope: 'all' } },
-        { title: '沿对角线对折', description: '沿对角线对折成一个大三角形。', op: { type: 'fold', a: [0, 1], b: [1, 0], side: [0.15, 0.15], kind: 'valley', scope: 'all' } },
-        { title: '再对折，收成四层三角', description: '把三角形再对折成四层的直角三角形：尖朝上、开口在下方（水雷基本型）。', op: { type: 'fold', a: [1, 1], b: [0.5, 0.5], side: [1, 0], kind: 'valley', scope: 'all' } }
-      ]
+      // 用“折叠状态”直接给出（不是对折两次的近似）：正面两片翻片在中脊处相接，折痕就是中线和两条对角线
+      state: {
+        facets: [
+          // 正面两片翻片（右下角的四分之一张纸被中线分成两半，正好是三角的两半）
+          { poly: [[0.5, 1], [0, 1], [0.5, 0.5]], T: { m: [1, 0, 0, 1], t: [0, 0] }, layer: 3 },
+          { poly: [[1, 1], [0.5, 1], [0.5, 0.5]], T: { m: [1, 0, 0, 1], t: [0, 0] }, layer: 3 },
+          // 中间两层：整块四分之一张纸，转 180° / -90° 叠上去
+          { poly: [[0, 0], [1, 0], [0.5, 0.5]], T: { m: [-1, 0, 0, -1], t: [1, 1] }, layer: 1 },
+          { poly: [[0, 1], [0, 0], [0.5, 0.5]], T: { m: [0, -1, 1, 0], t: [0, 1] }, layer: 2 },
+          // 最后一层：再转 90°
+          { poly: [[1, 0], [1, 1], [0.5, 0.5]], T: { m: [0, 1, -1, 0], t: [1, 0] }, layer: 0 }
+        ],
+        creases: [
+          { a: [0, 0], b: [1, 1], type: 'V', angle: 180 },
+          { a: [0, 1], b: [1, 0], type: 'V', angle: 180 },
+          { a: [0.5, 0], b: [0.5, 1], type: 'V', angle: 180 },
+          { a: [0, 0.5], b: [1, 0.5], type: 'V', angle: 180 }
+        ],
+        steps: [{ title: '收拢成水雷基本型', description: '两条对角线 + 一条中线压痕后，撑开收拢：正面是两片翻片，中间是中脊。' }]
+      }
     },
     {
       id: 'squarebase', name: '正方基本型（四层正方形）',
@@ -286,7 +299,8 @@
       ]
     }
   ];
-  function basesList() { return bases.map(function (b) { return { id: b.id, name: b.name, description: b.description, steps: b.steps.length, width: b.width, height: b.height }; }); }
+  function baseStepCount(b) { return (b.steps || (b.state && b.state.steps) || []).length; }
+  function basesList() { return bases.map(function (b) { return { id: b.id, name: b.name, description: b.description, steps: baseStepCount(b), width: b.width, height: b.height }; }); }
   function getBase(id) { for (var i = 0; i < bases.length; i++) if (bases[i].id === id) return JSON.parse(JSON.stringify(bases[i])); return null; }
 
   function list() { return models.map(function (m) { return { id: m.id, name: m.name, difficulty: m.difficulty, description: m.description, steps: m.steps.length }; }); }

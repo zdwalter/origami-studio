@@ -398,7 +398,9 @@
    * 已有步骤时先问一下（会覆盖），因为基本型必须从整张纸开始。
    */
   P.insertBase = function (base) {
-    if (!base || !base.steps || !base.steps.length) return false;
+    if (!base) return false;
+    var stepList = base.steps || (base.state && base.state.steps) || [];
+    if (!stepList.length) return false;
     if (this.steps.length) {
       var n = this.steps.length;
       if (!window.confirm('当前已有 ' + n + ' 步。插入基本型会清空这些步骤，从整张纸重新折。要继续吗？')) return false;
@@ -406,9 +408,31 @@
     if (this.anim) this._finishAnim();
     var w = base.width || 1, h = base.height || 1;
     this.reset(w, h);
+    // 有 state 的（真正的收拢结果）直接放进去，算作一步
+    if (base.state && base.state.facets && base.state.facets.length) {
+      var st0 = SF.clone(this.history[0]);
+      st0.facets = base.state.facets.map(function (f, i) {
+        return { id: i, poly: f.poly.map(function (q) { return q.slice(); }), T: { m: f.T.m.slice(), t: f.T.t.slice() }, layer: f.layer };
+      });
+      st0.nextId = st0.facets.length + 1;
+      st0.creases = (base.state.creases || []).map(function (c) {
+        return { a: c.a.slice(), b: c.b.slice(), type: c.type, angle: c.angle == null ? 180 : c.angle };
+      });
+      if (SF.compactLayers) SF.compactLayers(st0);
+      this.history.push(st0);
+      this.steps.push({ title: (base.state.steps && base.state.steps[0] && base.state.steps[0].title) || base.name,
+                        description: (base.state.steps && base.state.steps[0] && base.state.steps[0].description) || base.description,
+                        op: { type: 'base' }, user: true });
+      this.meta.push({ type: 'instant' });
+      this.pos = this.history.length - 1;
+      this._fit(true);
+      this._changed();
+      this.onStatus('已插入「' + base.name + '」：4 层、中间一条脊，可以接着往下折');
+      return true;
+    }
     var s = this.history[0];
-    for (var i = 0; i < base.steps.length; i++) {
-      var st = base.steps[i], r = SF.applyOp(s, st.op);
+    for (var i = 0; i < stepList.length; i++) {
+      var st = stepList[i], r = SF.applyOp(s, st.op);
       if (r.error) { this.onStatus('⚠ 基本型第 ' + (i + 1) + ' 步折不出来：' + r.error); return false; }
       this.history.push(r.state);
       this.steps.push({ title: st.title, description: st.description, op: st.op, user: true });
@@ -418,7 +442,7 @@
     this.pos = this.history.length - 1;
     this._fit(true);
     this._changed();
-    this.onStatus('已插入「' + base.name + '」：共 ' + base.steps.length + ' 步，可以接着往下折');
+    this.onStatus('已插入「' + base.name + '」：共 ' + stepList.length + ' 步，可以接着往下折');
     return true;
   };
 
