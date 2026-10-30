@@ -502,5 +502,33 @@ SM.list().forEach(function (meta) {
      '三角翼：3D 成品不出界、也没有被炸开（' + sz1.map(function (v) { return v.toFixed(2); }).join(' × ') + '）');
   ok(sz1[0] < m.width * 0.7, '三角翼：3D 折完后确实变小（' + (b0.max[0] - b0.min[0]).toFixed(2) + ' → ' + sz1[0].toFixed(2) + '）');
 })();
+
+// ---- 「打开某层」在旋转/翻面过的模型上也要能找到那一折（曾经报“折线这一侧没有纸”）
+(function () {
+  var st = SF.create({ width: 1, height: 1 });
+  function ap(op) { var r = SF.applyOp(st, op); if (!r.error) st = r.state; return r; }
+  ap({ type: 'fold', a: [0, 0], b: [1, 1], side: [0.85, 0.15], kind: 'valley', scope: 'all' });
+  ap({ type: 'fold', a: [0.5, 1], b: [0.5, 0], side: [1, 0.5], kind: 'valley', scope: 'all' });
+  ap({ type: 'fold', a: [-1, 0.5], b: [1, 0.5], side: [0.5, 0.9], kind: 'valley', scope: 'all' });
+  ap({ type: 'flip' });
+  ap({ type: 'rotate', deg: -45 });
+  ap({ type: 'fold', a: [0.3, 0.3], b: [0.9, 0.3], side: [0.5, 0.1], kind: 'valley', scope: 'topSheet' });
+  var before = st.facets.length, area = SF.totalArea(st);
+  // 在形状里找一个有纸的点
+  var b = SF.bounds(st), pt = null;
+  for (var y = b.min[1] + 0.02; y < b.max[1] - 0.02 && !pt; y += (b.max[1] - b.min[1]) / 8) {
+    for (var x = b.min[0] + 0.02; x < b.max[0] - 0.02 && !pt; x += (b.max[0] - b.min[0]) / 8) {
+      if (SF.facetAt(st, [x, y])) pt = [x, y];
+    }
+  }
+  ok(!!pt, '旋转/翻面过的模型上能找到可点的纸');
+  var paper = SF.affine.apply(SF.affine.invert(SF.facetAt(st, pt).T), pt);
+  var r = SF.unfoldLayer(st, paper, 1);
+  ok(!r.error, '「打开某层」在旋转/翻面过的模型上也能打开' + (r.error ? '（' + r.error + '）' : ''));
+  if (!r.error) {
+    ok(Math.abs(SF.totalArea(r.state) - area) < 1e-9, '打开后纸张面积不变');
+    ok(r.state.creases.length >= st.creases.length - 1, '打开的折痕保留（' + st.creases.length + ' → ' + r.state.creases.length + '）');
+  }
+})();
 console.log(passes + ' passed, ' + fails + ' failed');
 process.exit(fails ? 1 : 0);
