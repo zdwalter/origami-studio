@@ -470,6 +470,7 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
           <button class="btn sm" id="stUnfoldAll" title="把纸重新打开铺平，折痕全部留下（可撤销）">展开复原</button>
           <button class="btn sm" id="stUnfoldOne" title="只打开最近折的那一下，折痕保留">打开上一折</button>
           <button class="btn sm" id="stPeel" title="打开某层：在纸上点一下，就打开“该处最上面那一层”所在的折（再点继续往下一层开），折痕保留">打开某层</button>
+          <button class="btn sm" id="stTuck" title="翻层：在纸上点一下，就把这一层沿它最近的折痕边翻到背面（塞进夹层）">翻层</button>
           <button class="btn sm" id="st3D" title="把折好的成品按折角展开成三维姿态（可拖动旋转）">3D 展开展示</button>
           <label class="btn sm" id="st3DAngleWrap" hidden title="拖动调整展开角度">展开角度
             <input type="range" id="st3DAngle" min="0" max="180" step="5" value="90" style="width:90px;margin-left:4px;vertical-align:middle">
@@ -5664,6 +5665,68 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
    * 打开「某层」：在纸面点 point 处，从最上层往下数第 nth 层（1 基），
    * 把它所在的这一折打开（只打开影响这一层的最后一折）。翻面/旋转之后同样适用。
    */
+  /**
+   * 「翻层」：把点到的这一层沿它自己的折痕边翻到另一侧，塞进夹层（变到最底下）。
+   * 相当于纸上把一层掀起来、翻过折痕压到别的层后面。返回 { state, op }。
+   */
+  function tuckLayer(state, point) {
+    var s = clone(state);
+    var F = facetAt(s, point);
+    if (!F) return { error: '这里没有纸' };
+    var P = folded(F);
+    // 找这一层的折痕边：与其它纸片共享、且离点的位置最近的那条（点在哪条边附近就翻哪条边）
+    var best = null, bestScore = Infinity;
+    for (var i = 0; i < P.length; i++) {
+      var A = P[i], B = P[(i + 1) % P.length];
+      var len = OG.dist(A, B);
+      if (len < 1e-6) continue;
+      var score = OG.pointSegDist(point, A, B);
+      var shared = false;
+      for (var j = 0; j < s.facets.length && !shared; j++) {
+        var G = s.facets[j];
+        if (G.id === F.id) continue;
+        var Q = folded(G);
+        for (var k = 0; k < Q.length; k++) {
+          var C = Q[k], D = Q[(k + 1) % Q.length];
+          if (OG.dist(A, C) < 1e-6 && OG.dist(B, D) < 1e-6) { shared = true; break; }
+          if (OG.dist(A, D) < 1e-6 && OG.dist(B, C) < 1e-6) { shared = true; break; }
+        }
+      }
+      if (shared && score < bestScore - 1e-12) { best = [A, B]; bestScore = score; }
+    }
+    if (!best) return { error: '这一层找不到可以翻的折痕边（它是一只整片）' };
+    // 沿这条边翻 180°：平面变换 = 反射
+    var Rm = reflection(best[0], best[1]);
+    F.T = compose(Rm, F.T);
+    var newPoly = folded(F);
+    // 塞到最底下：比所有与它重叠的纸片都低
+    var minLayer = F.layer;
+    s.facets.forEach(function (G) {
+      if (G.id === F.id) return;
+      if (!overlapPoly(folded(G), newPoly)) return;
+      if (G.layer < minLayer) minLayer = G.layer;
+    });
+    F.layer = minLayer - 1;
+    compactLayers(s);
+    return {
+      state: s,
+      op: { type: 'tuckLayer', point: point.slice(), edge: [best[0].slice(), best[1].slice()] }
+    };
+  }
+  function overlapPoly(A, B) {
+    function samples(P) {
+      var c = OG.polyCentroid ? OG.polyCentroid(P) : [0, 0];
+      var out = [c];
+      P.forEach(function (q) { out.push(OG.lerp(c, q, 0.9)); });
+      for (var i = 0; i < P.length; i++) out.push(OG.lerp(c, OG.lerp(P[i], P[(i + 1) % P.length], 0.5), 0.9));
+      return out;
+    }
+    var sa = samples(A), sb = samples(B), i;
+    for (i = 0; i < sa.length; i++) if (OG.pointInPoly(sa[i], B)) return true;
+    for (i = 0; i < sb.length; i++) if (OG.pointInPoly(sb[i], A)) return true;
+    return false;
+  }
+
   function unfoldLayer(state, point, nth) {
     nth = Math.max(1, nth || 1);
     var stack = [];
@@ -5782,6 +5845,7 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
     if (op.type === 'flip') return { state: flip(state) };
     if (op.type === 'rotate') return { state: rotate(state, op.deg || 0) };
     if (op.type === 'crease') return crease(state, op);
+    if (op.type === 'tuckLayer') return tuckLayer(state, op.point);
     if (op.type === 'unfold') return unfold(state);
     if (op.type === 'unfoldLayer') return unfoldLayer(state, op.point, op.nth || 1);
     if (op.type === 'peelLayer') return peelLayer(state, op.point);
@@ -6370,7 +6434,7 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
     lineFromPoints: lineFromPoints, pointToPoint: pointToPoint, edgeToEdge: edgeToEdge,
     visibleFaces: visibleFaces, outlineEdges: outlineEdges, snapPoints: snapPoints, totalArea: totalArea,
     creasePattern: creasePattern, threeDPose: threeDPose, buildPoseModel: buildPoseModel, serialize: serialize, deserialize: deserialize,
-    unfoldLayer: unfoldLayer, removeFold: removeFold, facetAt: facetAt, peelLayer: peelLayer,
+    unfoldLayer: unfoldLayer, removeFold: removeFold, facetAt: facetAt, peelLayer: peelLayer, tuckLayer: tuckLayer,
     affine: { apply: apply, compose: compose, invert: invert, det: det, reflection: reflection }
   };
 })(typeof window !== 'undefined' ? window : globalThis);
@@ -6726,6 +6790,15 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
    * 点击处：打开该处最上面那一层所在的折——效果是回到“折这一层之前”的样子。
    * 引擎会把那一折从历史里去掉后按纸面坐标重放，所以后面的折、折痕都不受影响。
    */
+  /** 「翻层」：点一下，把这一层沿它最近的折痕边翻到另一侧（塞到最底下）。记成一步。 */
+  P.tuckLayerAt = function (world) {
+    var res = SF.tuckLayer(this.state(), world);
+    if (res.error) { this.onStatus('⚠ ' + res.error); this.dirty = true; return false; }
+    var n = this.steps.filter(function (x) { return x.user; }).length + 1;
+    this.onStatus('把这一层翻到了背面（塞进夹层）');
+    return this._userOp(res.op, '翻层（第 ' + n + ' 次自定义）', '把这一层沿折痕边翻到另一侧，塞进夹层；折痕保留');
+  };
+
   P.unfoldLayerAt = function (world) {
     var st0 = this.state();
     var facet = SF.facetAt(st0, world);
@@ -7458,6 +7531,7 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
         if (e.button === 1 || e.button === 2 || self.tool === 'pan' || self._space) { drag = { mode: 'pan', sx: sp[0], sy: sp[1], ox: self.view.ox, oy: self.view.oy }; c.style.cursor = 'grabbing'; return; }
         drag = { mode: 'tool', sx: sp[0], sy: sp[1], w: w, moved: false };
         if (self.tool === 'peel') { self.unfoldLayerAt(w); self.dirty = true; return; }
+        if (self.tool === 'tuck') { self.tuckLayerAt(w); self.dirty = true; return; }
         if (self.tool === 'linefold') { self.dirty = true; return; }
         if (self.tool === 'line' && self.ui.mode !== 'side') { var s0 = self._snap(w); self.ui = { mode: 'drawing', a: s0.p, b: s0.p, snap: s0 }; }
         self.dirty = true;
@@ -8538,6 +8612,12 @@ input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line2); b
     $('stRotL').addEventListener('click', function () { if (S.stepView) S.stepView.rotate(-45); });
     $('stRotR').addEventListener('click', function () { if (S.stepView) S.stepView.rotate(45); });
     $('stReset').addEventListener('click', function () { newPaper($('stPaper').value); });
+    $('stTuck').addEventListener('click', function () {
+      var on = $('stTuck').classList.toggle('active');
+      if (on) { if ($('stPeel')) $('stPeel').classList.remove('active'); }
+      $$('#stepToolGroup .tbtn').forEach(function (x) { x.classList.remove('active'); });
+      if (S.stepView) { S.stepView.setTool(on ? 'tuck' : 'line'); S.stepView.onStatus(on ? '翻层：点一下要翻的那一层，它会沿最近的折痕边翻到背面' : ''); }
+    });
     $('stPeel').addEventListener('click', function () {
       if (!S.stepView) return;
       var on = !(this.dataset.on === '1');

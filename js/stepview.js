@@ -79,6 +79,15 @@
    * 点击处：打开该处最上面那一层所在的折——效果是回到“折这一层之前”的样子。
    * 引擎会把那一折从历史里去掉后按纸面坐标重放，所以后面的折、折痕都不受影响。
    */
+  /** 「翻层」：点一下，把这一层沿它最近的折痕边翻到另一侧（塞到最底下）。记成一步。 */
+  P.tuckLayerAt = function (world) {
+    var res = SF.tuckLayer(this.state(), world);
+    if (res.error) { this.onStatus('⚠ ' + res.error); this.dirty = true; return false; }
+    var n = this.steps.filter(function (x) { return x.user; }).length + 1;
+    this.onStatus('把这一层翻到了背面（塞进夹层）');
+    return this._userOp(res.op, '翻层（第 ' + n + ' 次自定义）', '把这一层沿折痕边翻到另一侧，塞进夹层；折痕保留');
+  };
+
   P.unfoldLayerAt = function (world) {
     var st0 = this.state();
     var facet = SF.facetAt(st0, world);
@@ -811,6 +820,7 @@
         if (e.button === 1 || e.button === 2 || self.tool === 'pan' || self._space) { drag = { mode: 'pan', sx: sp[0], sy: sp[1], ox: self.view.ox, oy: self.view.oy }; c.style.cursor = 'grabbing'; return; }
         drag = { mode: 'tool', sx: sp[0], sy: sp[1], w: w, moved: false };
         if (self.tool === 'peel') { self.unfoldLayerAt(w); self.dirty = true; return; }
+        if (self.tool === 'tuck') { self.tuckLayerAt(w); self.dirty = true; return; }
         if (self.tool === 'linefold') { self.dirty = true; return; }
         if (self.tool === 'line' && self.ui.mode !== 'side') { var s0 = self._snap(w); self.ui = { mode: 'drawing', a: s0.p, b: s0.p, snap: s0 }; }
         self.dirty = true;

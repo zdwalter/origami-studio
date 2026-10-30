@@ -949,6 +949,12 @@
     $('stRotL').addEventListener('click', function () { if (S.stepView) S.stepView.rotate(-45); });
     $('stRotR').addEventListener('click', function () { if (S.stepView) S.stepView.rotate(45); });
     $('stReset').addEventListener('click', function () { newPaper($('stPaper').value); });
+    $('stTuck').addEventListener('click', function () {
+      var on = $('stTuck').classList.toggle('active');
+      if (on) { if ($('stPeel')) $('stPeel').classList.remove('active'); }
+      $$('#stepToolGroup .tbtn').forEach(function (x) { x.classList.remove('active'); });
+      if (S.stepView) { S.stepView.setTool(on ? 'tuck' : 'line'); S.stepView.onStatus(on ? '翻层：点一下要翻的那一层，它会沿最近的折痕边翻到背面' : ''); }
+    });
     $('stPeel').addEventListener('click', function () {
       if (!S.stepView) return;
       var on = !(this.dataset.on === '1');

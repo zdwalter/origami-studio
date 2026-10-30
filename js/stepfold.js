@@ -535,6 +535,68 @@
    * 打开「某层」：在纸面点 point 处，从最上层往下数第 nth 层（1 基），
    * 把它所在的这一折打开（只打开影响这一层的最后一折）。翻面/旋转之后同样适用。
    */
+  /**
+   * 「翻层」：把点到的这一层沿它自己的折痕边翻到另一侧，塞进夹层（变到最底下）。
+   * 相当于纸上把一层掀起来、翻过折痕压到别的层后面。返回 { state, op }。
+   */
+  function tuckLayer(state, point) {
+    var s = clone(state);
+    var F = facetAt(s, point);
+    if (!F) return { error: '这里没有纸' };
+    var P = folded(F);
+    // 找这一层的折痕边：与其它纸片共享、且离点的位置最近的那条（点在哪条边附近就翻哪条边）
+    var best = null, bestScore = Infinity;
+    for (var i = 0; i < P.length; i++) {
+      var A = P[i], B = P[(i + 1) % P.length];
+      var len = OG.dist(A, B);
+      if (len < 1e-6) continue;
+      var score = OG.pointSegDist(point, A, B);
+      var shared = false;
+      for (var j = 0; j < s.facets.length && !shared; j++) {
+        var G = s.facets[j];
+        if (G.id === F.id) continue;
+        var Q = folded(G);
+        for (var k = 0; k < Q.length; k++) {
+          var C = Q[k], D = Q[(k + 1) % Q.length];
+          if (OG.dist(A, C) < 1e-6 && OG.dist(B, D) < 1e-6) { shared = true; break; }
+          if (OG.dist(A, D) < 1e-6 && OG.dist(B, C) < 1e-6) { shared = true; break; }
+        }
+      }
+      if (shared && score < bestScore - 1e-12) { best = [A, B]; bestScore = score; }
+    }
+    if (!best) return { error: '这一层找不到可以翻的折痕边（它是一只整片）' };
+    // 沿这条边翻 180°：平面变换 = 反射
+    var Rm = reflection(best[0], best[1]);
+    F.T = compose(Rm, F.T);
+    var newPoly = folded(F);
+    // 塞到最底下：比所有与它重叠的纸片都低
+    var minLayer = F.layer;
+    s.facets.forEach(function (G) {
+      if (G.id === F.id) return;
+      if (!overlapPoly(folded(G), newPoly)) return;
+      if (G.layer < minLayer) minLayer = G.layer;
+    });
+    F.layer = minLayer - 1;
+    compactLayers(s);
+    return {
+      state: s,
+      op: { type: 'tuckLayer', point: point.slice(), edge: [best[0].slice(), best[1].slice()] }
+    };
+  }
+  function overlapPoly(A, B) {
+    function samples(P) {
+      var c = OG.polyCentroid ? OG.polyCentroid(P) : [0, 0];
+      var out = [c];
+      P.forEach(function (q) { out.push(OG.lerp(c, q, 0.9)); });
+      for (var i = 0; i < P.length; i++) out.push(OG.lerp(c, OG.lerp(P[i], P[(i + 1) % P.length], 0.5), 0.9));
+      return out;
+    }
+    var sa = samples(A), sb = samples(B), i;
+    for (i = 0; i < sa.length; i++) if (OG.pointInPoly(sa[i], B)) return true;
+    for (i = 0; i < sb.length; i++) if (OG.pointInPoly(sb[i], A)) return true;
+    return false;
+  }
+
   function unfoldLayer(state, point, nth) {
     nth = Math.max(1, nth || 1);
     var stack = [];
@@ -653,6 +715,7 @@
     if (op.type === 'flip') return { state: flip(state) };
     if (op.type === 'rotate') return { state: rotate(state, op.deg || 0) };
     if (op.type === 'crease') return crease(state, op);
+    if (op.type === 'tuckLayer') return tuckLayer(state, op.point);
     if (op.type === 'unfold') return unfold(state);
     if (op.type === 'unfoldLayer') return unfoldLayer(state, op.point, op.nth || 1);
     if (op.type === 'peelLayer') return peelLayer(state, op.point);
@@ -1241,7 +1304,7 @@
     lineFromPoints: lineFromPoints, pointToPoint: pointToPoint, edgeToEdge: edgeToEdge,
     visibleFaces: visibleFaces, outlineEdges: outlineEdges, snapPoints: snapPoints, totalArea: totalArea,
     creasePattern: creasePattern, threeDPose: threeDPose, buildPoseModel: buildPoseModel, serialize: serialize, deserialize: deserialize,
-    unfoldLayer: unfoldLayer, removeFold: removeFold, facetAt: facetAt, peelLayer: peelLayer,
+    unfoldLayer: unfoldLayer, removeFold: removeFold, facetAt: facetAt, peelLayer: peelLayer, tuckLayer: tuckLayer,
     affine: { apply: apply, compose: compose, invert: invert, det: det, reflection: reflection }
   };
 })(typeof window !== 'undefined' ? window : globalThis);

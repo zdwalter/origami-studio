@@ -414,6 +414,27 @@ var fails = 0; function ok(c, m) { console.log((c ? 'ok   ' : 'FAIL ') + m); if 
   ok(!ortho.freeAxis, '点到点：明显斜的方向不会被强行对齐');
   ok(ortho.foldDx < 1e-9 && ortho.foldDy > 0.1, '点到点对齐后折线正好垂直于两点连线（dx=' + (ortho.foldDx || 0).toFixed(9) + '）');
 
+  // 19. 「翻层」：点一下把这一层沿折痕边翻到背面（塞进夹层）
+  var tuck = await page.evaluate(function () {
+    var v = window.OrigamiStudio.stepView, SF = window.StepFold;
+    v.reset(1, 1); v.setTool('line');
+    v._userOp({ type: 'fold', a: [0.5, 0], b: [0, 0.5], side: [0.08, 0.08], kind: 'valley', scope: 'all' }, '折角', '');
+    if (v.anim) v._finishAnim();
+    document.getElementById('stTuck').click();
+    var tool = v.tool, pt = null;
+    for (var y = 0.05; y < 0.95 && !pt; y += 0.05) for (var x = 0.05; x < 0.95 && !pt; x += 0.05) {
+      if (SF.facetAt(v.state(), [x, y]) && !SF.tuckLayer(v.state(), [x, y]).error) pt = [x, y];
+    }
+    var ok = pt ? v.tuckLayerAt(pt) : false;
+    if (v.anim) v._finishAnim();
+    var st = v.state();
+    document.getElementById('stTuck').click();
+    return { tool: tool, ok: !!ok, steps: v.getSteps().length, area: +SF.totalArea(st).toFixed(6) };
+  });
+  ok(tuck.tool === 'tuck', '「翻层」按钮切到翻层工具');
+  ok(tuck.ok && tuck.steps === 2, '「翻层」翻成功并记成一步（共 ' + tuck.steps + ' 步）');
+  ok(Math.abs(tuck.area - 1) < 1e-6, '「翻层」后纸张面积不变（' + tuck.area + '）');
+
   ok(!logs.length, 'no console errors ' + logs.join(' | '));
   await browser.close();
   console.log(fails ? fails + ' FAILED' : 'ALL OK');
