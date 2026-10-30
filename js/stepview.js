@@ -112,6 +112,44 @@
    * 点击处：打开该处最上面那一层所在的折——效果是回到“折这一层之前”的样子。
    * 引擎会把那一折从历史里去掉后按纸面坐标重放，所以后面的折、折痕都不受影响。
    */
+  /** 「点折痕折一步」：点到哪条折痕，就按当前山/谷沿它折一步 */
+  P.foldAlongCreaseAt = function (world) {
+    var seg = this._nearestCrease(world, null);
+    if (!seg) { this.onStatus('⚠ 点在纸上的折痕附近（会高亮），再点一次'); this.dirty = true; return false; }
+    var line = { a: seg.a.slice(), b: seg.b.slice() };
+    var side = world;
+    if (Math.abs(OG.orient(line.a, line.b, side)) < 1e-9) {
+      // 正好点在折痕上：两侧各取一个小偏移，折“纸面积小”的那一侧（通常就是想折的那片角）
+      var stt = this.state();
+      var eps = 0.03 * Math.max(stt.width, stt.height);
+      var dx = line.b[0] - line.a[0], dy = line.b[1] - line.a[1], L = Math.hypot(dx, dy) || 1;
+      var nx = -dy / L, ny = dx / L;
+      var best = null;
+      [[1], [-1]].forEach(function (sgn) {
+        var q = [world[0] + nx * eps * sgn[0], world[1] + ny * eps * sgn[0]];
+        if (!SF.facetAt(stt, q)) return;
+        // 这一侧的纸面积
+        var area = 0;
+        stt.facets.forEach(function (f) {
+          var P = f.poly.map(function (q2) { return SF.affine.apply(f.T, q2); });
+          var c = OG.polyCentroid(P);
+          if (OG.orient(line.a, line.b, c) * sgn[0] <= 0) return;
+          area += Math.abs(OG.polyArea(P));
+        });
+        if (!best || area < best.area) best = { q: q, area: area };
+      });
+      if (!best) { this.onStatus('⚠ 折痕这一侧没有纸'); this.dirty = true; return false; }
+      side = best.q;
+    }
+    if (Math.abs(OG.orient(line.a, line.b, side)) < 1e-9) { this.onStatus('⚠ 点在折痕的一侧再试'); this.dirty = true; return false; }
+    var op = { type: 'fold', a: line.a, b: line.b, side: side, kind: this.kind, scope: this.scope };
+    if (this.foldAngle && this.foldAngle < 180) op.angle = this.foldAngle;
+    var n = this.steps.filter(function (x) { return x.user; }).length + 1;
+    var ok = this._userOp(op, (this.kind === 'mountain' ? '山折' : '谷折') + '（沿折痕，第 ' + n + ' 次自定义）',
+      '沿纸上已有的折痕折一步');
+    return ok;
+  };
+
   P.unfoldLayerAt = function (world) {
     var st0 = this.state();
     var facet = SF.facetAt(st0, world);
@@ -351,6 +389,32 @@
     var st = this.history.length ? this.history[this.history.length - 1] : this.state();
     return SF.creasePattern(st, this.model ? this.model.name + ' 折痕' : '分步折叠折痕');
   };
+  /** 把一张折痕图作为“参考折痕”载入当前状态：只画在纸上（角度 0），方便一条条点着折 */
+  P.setGuideCreases = function (doc) {
+    if (!doc || !doc.lines || !doc.lines.length) return 0;
+    var st = SF.clone(this.state());
+    var seen = {};
+    function key(c) {
+      var A = c.a, B = c.b;
+      return [Math.min(A[0], B[0]), Math.min(A[1], B[1]), Math.max(A[0], B[0]), Math.max(A[1], B[1])]
+        .map(function (x) { return (+x).toFixed(6); }).join(',');
+    }
+    st.creases.forEach(function (c) { seen[key(c)] = 1; });
+    var added = 0;
+    doc.lines.forEach(function (l) {
+      if (l.type === 'B') return;
+      var c = { a: [l.a[0], l.a[1]], b: [l.b[0], l.b[1]], type: (l.type === 'M' ? 'M' : 'V'), angle: 0,
+                stage: l.stage, foldAngle: l.foldAngle };
+      if (seen[key(c)]) return;
+      seen[key(c)] = 1; st.creases.push(c); added++;
+    });
+    this.history[this.pos] = st;
+    this._invalidatePreview && this._invalidatePreview();
+    this.dirty = true;
+    this.onStatus('已载入 ' + added + ' 条参考折痕：用「点折痕折一步」一条条点着折');
+    return added;
+  };
+
   P.exportPNG = function () { this._draw(); return this.canvas.toDataURL('image/png'); };
   P.resize = function () { this._resize(); if (!this.userView) this._fit(true); this.dirty = true; };
   P.destroy = function () { cancelAnimationFrame(this._raf); this._unbind(); };
@@ -696,6 +760,7 @@
       line: '折线：在纸上拖出一条折线（Shift 约束 22.5°），然后点击要翻折的一侧；Esc 取消',
       p2p: '点到点：先点击要移动的点，再点击目标点（靠近水平/垂直/45° 会自动对齐）',
       e2e: '边到边：先点击要移动的边（纸边或压痕），再点击目标边',
+      foldcrease: '点折痕折一步：鼠标靠近折痕会高亮，点一下（点在哪一侧，那一侧就翻过去）；山/谷用上方按钮切换',
       linefold: '点到对称线：先点要折的那一层上的一个点，再点作为对称轴的折痕或纸边，这一层就沿它翻过去',
       pan: '平移：拖动画布；滚轮缩放，双击复位视图'
     }[this.tool] || '';
@@ -876,6 +941,7 @@
         if (e.button === 1 || e.button === 2 || self.tool === 'pan' || self._space) { drag = { mode: 'pan', sx: sp[0], sy: sp[1], ox: self.view.ox, oy: self.view.oy }; c.style.cursor = 'grabbing'; return; }
         drag = { mode: 'tool', sx: sp[0], sy: sp[1], w: w, moved: false };
         if (self.tool === 'peel') { self.unfoldLayerAt(w); self.dirty = true; return; }
+        if (self.tool === 'foldcrease') { self.foldAlongCreaseAt(w); self.dirty = true; return; }
         if (self.tool === 'linefold') { self.dirty = true; return; }
         if (self.tool === 'line' && self.ui.mode !== 'side') { var s0 = self._snap(w); self.ui = { mode: 'drawing', a: s0.p, b: s0.p, snap: s0 }; }
         self.dirty = true;
@@ -912,6 +978,7 @@
           self.dirty = true;
           return;
         }
+        if (self.tool === 'foldcrease') { ui.hoverCrease = self._nearestCrease(w, null); self.dirty = true; return; }
         if (self.tool === 'p2p') {
           if (ui.mode === 'p2p2') self._updatePreview(w); else ui.snap = self._snap(w);
           self.dirty = true; return;

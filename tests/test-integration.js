@@ -478,6 +478,44 @@ var fails = 0; function ok(c, m) { console.log((c ? 'ok   ' : 'FAIL ') + m); if 
      '写回后分步折叠第 2 步变成山折（' + JSON.stringify(writeBack.before) + ' → ' + JSON.stringify(writeBack.after) + '）');
   ok(writeBack.facets >= 2 && Math.abs(writeBack.area - 1) < 1e-6, '写回后仍是正常折叠状态（' + writeBack.facets + ' 片，面积 ' + writeBack.area + '）');
 
+  // 22. 「点折痕折」：点纸上的折痕就沿它折一步；折痕图也能作为参考折痕送进分步折叠
+  var clickFold = await page.evaluate(async function () {
+    var OS = window.OrigamiStudio, v = OS.stepView;
+    document.querySelector('.mode-tab[data-mode="step"]').click();
+    await new Promise(function (r) { setTimeout(r, 200); });
+    v.reset(1, 1); v.setTool('line'); v.setCreaseOnly(true);
+    v.ui = { mode: 'side', line: { a: [0.5, 0], b: [0.5, 1] } }; v._updatePreview([0.2, 0.5]); v._commit();
+    v.ui = { mode: 'side', line: { a: [0, 0.5], b: [1, 0.5] } }; v._updatePreview([0.5, 0.2]); v._commit();
+    v.setCreaseOnly(false);
+    if (v.anim) v._finishAnim();
+    document.querySelector('[data-stool="foldcrease"]').click();
+    var tool = v.tool;
+    var creases = v.state().creases.length, facets0 = v.state().facets.length, steps0 = v.getSteps().length;
+    var ok = v.foldAlongCreaseAt([0.25, 0.5]);
+    if (v.anim) v._finishAnim();
+    // 折痕设计 → 折痕图 → 分步折叠（参考折痕）
+    document.querySelector('.mode-tab[data-mode="design"]').click();
+    await new Promise(function (r) { setTimeout(r, 600); });
+    OS.editor.setDoc({ name: 'g', description: '', width: 1, height: 1, lines: [
+      { a: [0, 0], b: [1, 0], type: 'B' }, { a: [1, 0], b: [1, 1], type: 'B' },
+      { a: [1, 1], b: [0, 1], type: 'B' }, { a: [0, 1], b: [0, 0], type: 'B' },
+      { a: [0.5, 0], b: [0.5, 1], type: 'V' }, { a: [0, 0.5], b: [1, 0.5], type: 'V' }
+    ] }, { resetHistory: true });
+    await new Promise(function (r) { setTimeout(r, 500); });
+    document.getElementById('edToStep').click();
+    await new Promise(function (r) { setTimeout(r, 1000); });
+    var guides = OS.stepView.state().creases.length;
+    var mode = OS.mode, tool2 = OS.stepView.tool;
+    return { tool: tool, creases: creases, facets0: facets0, steps0: steps0, ok: !!ok,
+             facets: v.state().facets.length, steps: v.getSteps().length,
+             mode: mode, guides: guides, tool2: tool2 };
+  });
+  ok(clickFold.tool === 'foldcrease', '「点折痕折」工具可用');
+  ok(clickFold.ok && clickFold.facets > clickFold.facets0, '点一下折痕就折了一步（' + clickFold.facets0 + ' → ' + clickFold.facets + ' 片）');
+  ok(clickFold.steps === clickFold.steps0 + 1, '沿折痕折一步记成一步（' + clickFold.steps0 + ' → ' + clickFold.steps + '）');
+  ok(clickFold.mode === 'step' && clickFold.guides >= 2, '「折痕图 → 分步折叠」把折痕载入成参考折痕（' + clickFold.guides + ' 条）');
+  ok(clickFold.tool2 === 'foldcrease', '载入后自动切到「点折痕折」工具');
+
   ok(!logs.length, 'no console errors ' + logs.join(' | '));
   await browser.close();
   console.log(fails ? fails + ' FAILED' : 'ALL OK');

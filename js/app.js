@@ -1174,6 +1174,26 @@
     $('stTo3D').addEventListener('click', stepTo3D);
     $('stToDesign').addEventListener('click', stepToDesign);
     if ($('edWriteBack')) $('edWriteBack').addEventListener('click', writeBackToSteps);
+    if ($('edToStep')) $('edToStep').addEventListener('click', function () {
+      if (!S.editor || !S.stepView) return;
+      var doc = S.editor.getDoc ? S.editor.getDoc() : S.editor.doc;
+      if (!doc || !doc.lines || !doc.lines.length) { toast('折痕设计里还没有折痕', true); return; }
+      switchMode('step');
+      setTimeout(function () {
+        if (!S.stepView) return;
+        // 纸张尺寸跟着折痕图走
+        var st = S.stepView.state();
+        if (Math.abs(st.width - doc.width) > 1e-6 || Math.abs(st.height - doc.height) > 1e-6) {
+          S.stepView.reset(doc.width, doc.height);
+          renderStepList();
+        }
+        var n = S.stepView.setGuideCreases(doc);
+        renderStepList();
+        if (S.stepView.setTool) S.stepView.setTool('foldcrease');
+        $$('#stepToolGroup .tbtn').forEach(function (x) { x.classList.toggle('active', x.dataset.stool === 'foldcrease'); });
+        toast(n ? ('已载入 ' + n + ' 条参考折痕：用「点折痕折」一条条点着折') : '折痕已在纸上，直接用「点折痕折」');
+      }, 260);
+    });
     $('st3DAngle').addEventListener('input', function () {
       if (!S.stepView) return;
       S.stepView.setDisplayAngle(+this.value);

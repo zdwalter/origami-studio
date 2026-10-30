@@ -93,6 +93,7 @@
             <button class="ltype" data-type="C" title="剪切 (C / 5)"><i style="--c:var(--c-c)"></i>剪</button>
           </div>
           <label class="angle-field" title="新线条的目标折角（|角度|）">折角 <input type="number" id="lineAngle" min="0" max="180" step="1" value="180">°</label>
+          <button class="btn sm" id="edToStep" title="把折痕设计里的折痕，作为参考折痕送进「分步折叠」（不折，只画在纸上），然后用「点折痕折」一条条点着折">折痕图 → 分步折叠</button>
           <button class="btn primary sm" id="edWriteBack" title="把在折痕设计里改过的山/谷，全部写回「分步折叠」并自动重折（点之前会列出将改动哪几步让你确认）" hidden>写回分步折叠</button>
           <div class="tsep"></div>
           <div class="tgroup">
@@ -164,6 +165,7 @@
             <button class="tbtn" data-stool="p2p" title="点对点：把一个点折到另一个点上"><svg viewBox="0 0 24 24"><circle cx="5" cy="19" r="2"/><circle cx="19" cy="5" r="2"/><path d="M7 17 17 7" stroke-dasharray="2 2"/></svg><span>点到点</span></button>
             <button class="tbtn" data-stool="e2e" title="边对边：把一条边折到另一条边上（角平分）"><svg viewBox="0 0 24 24"><path d="M4 20h16 M4 20 16 4 M4 20l16-8" /></svg><span>边到边</span></button>
             <button class="tbtn" data-stool="linefold" title="点到对称线：先点要折的那一层上的一个点，再点作为对称轴的折痕或纸边，这一层就沿它翻过去"><svg viewBox="0 0 24 24"><path d="M4 20 20 4" stroke-dasharray="3 2"/><circle cx="7" cy="9" r="2"/><circle cx="15" cy="17" r="2" fill="none"/><path d="M8.5 10.5 13.5 15.5" stroke-dasharray="2 2"/></svg><span>点到对称线</span></button>
+            <button class="tbtn" data-stool="foldcrease" title="点折痕折一步：点纸上的折痕就沿它折一步（点在哪一侧，那一侧翻过去；山/谷用上方按钮切换）"><svg viewBox="0 0 24 24"><path d="M4 19 20 5" stroke-dasharray="3 2"/><path d="M13 5h7v7" /><path d="M13 12 20 5"/></svg><span>点折痕折</span></button>
             <button class="tbtn" data-stool="pan" title="平移视图"><svg viewBox="0 0 24 24"><path d="M12 3v18 M3 12h18"/></svg><span>平移</span></button>
           </div>
           <div class="tsep"></div>
