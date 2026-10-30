@@ -435,6 +435,51 @@ var fails = 0; function ok(c, m) { console.log((c ? 'ok   ' : 'FAIL ') + m); if 
   ok(link.mode === 'design' && link.lines > 0, '「折痕 → 折痕设计」把折痕图送进了折痕设计（' + link.lines + ' 条线）');
   ok(link.stages.length > 0, '送进折痕设计的折痕保留“第几步”信息（' + link.stages.length + ' 条）');
 
+  // 21. 折痕设计里选中折痕 → 点「写回选中折痕」→ 只改对应那一步并自动重折
+  var writeBack = await page.evaluate(async function () {
+    var OS = window.OrigamiStudio, v = OS.stepView;
+    document.querySelector('.mode-tab[data-mode="step"]').click();
+    await new Promise(function (r) { setTimeout(r, 200); });
+    v.reset(1, 1); v.setTool('line');
+    v._userOp({ type: 'fold', a: [0.5, 0], b: [0.5, 1], side: [0.2, 0.5], kind: 'valley', scope: 'all' }, '对折', '');
+    if (v.anim) v._finishAnim();
+    v._userOp({ type: 'fold', a: [0.5, 0.5], b: [1, 1], side: [0.85, 0.55], kind: 'valley', scope: 'topSheet' }, '折角', '');
+    if (v.anim) v._finishAnim();
+    var before = v.getSteps().map(function (s) { return s.op.kind; });
+    document.getElementById('stToDesign').click();
+    await new Promise(function (r) { setTimeout(r, 800); });
+    var ed = OS.editor;
+    var idx = -1, line = null;
+    (ed.doc.lines || []).forEach(function (l, i) { if (!line && l.stage === 2 && (l.type === 'V' || l.type === 'M')) { idx = i; line = l; } });
+    if (idx < 0) return { err: '没有 stage=2 的折痕' };
+    window.confirm = function () { return true; };
+    var opp = line.type === 'M' ? 'V' : 'M';
+    document.querySelectorAll('#typeGroup .ltype').forEach(function (bt) { if (bt.dataset.type === opp) bt.click(); });
+    ed.setTool('type');
+    await new Promise(function (r) { setTimeout(r, 150); });
+    var box = ed.canvas.getBoundingClientRect();
+    var mid = [(line.a[0] + line.b[0]) / 2, (line.a[1] + line.b[1]) / 2], sp = ed.toScreen(mid);
+    function clickAt() {
+      ['pointerdown', 'pointerup'].forEach(function (t) {
+        ed.canvas.dispatchEvent(new PointerEvent(t, { clientX: box.left + sp[0], clientY: box.top + sp[1], button: 0, bubbles: true, pointerId: 1 }));
+      });
+    }
+    clickAt();
+    await new Promise(function (r) { setTimeout(r, 600); });
+    ed.setTool('select');
+    await new Promise(function (r) { setTimeout(r, 150); });
+    clickAt();
+    await new Promise(function (r) { setTimeout(r, 300); });
+    var sel = ed.getSelection ? ed.getSelection().length : 0;
+    document.getElementById('edWriteBack').click();
+    await new Promise(function (r) { setTimeout(r, 900); });
+    return { sel: sel, mode: OS.mode, before: before, after: v.getSteps().map(function (s) { return s.op.kind; }) };
+  });
+  ok(writeBack.sel >= 1, '折痕设计里能选中折痕（选中 ' + writeBack.sel + ' 条）');
+  ok(writeBack.mode === 'step', '点「写回选中折痕」后回到分步折叠');
+  ok(writeBack.after && writeBack.after[1] === 'mountain' && writeBack.after[0] === 'valley',
+     '只写回选中那一步（' + JSON.stringify(writeBack.before) + ' → ' + JSON.stringify(writeBack.after) + '）');
+
   ok(!logs.length, 'no console errors ' + logs.join(' | '));
   await browser.close();
   console.log(fails ? fails + ' FAILED' : 'ALL OK');

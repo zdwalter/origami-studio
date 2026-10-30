@@ -499,6 +499,7 @@
     if (mode === S.mode) return;
     S.mode = mode;
     $('app').dataset.mode = mode;
+    if ($('edWriteBack')) $('edWriteBack').hidden = !(mode === 'design' && S.stepKindLink);
     $$('.mode-tab').forEach(function (b) { var on = b.dataset.mode === mode; b.classList.toggle('active', on); b.setAttribute('aria-selected', on); });
     requestAnimationFrame(function () {
       if (S.renderer) { S.renderer.resize(); S.renderer.fit(false); S.renderer.dirty = true; }
@@ -636,6 +637,69 @@
     $('stUndo').disabled = $('stPrev').disabled = !v.canUndo(); $('stRedo').disabled = $('stNext').disabled = !v.canRedo();
     var curEl = box.querySelector('.current'); if (curEl && curEl.scrollIntoView) curEl.scrollIntoView({ block: 'nearest' });
   }
+  /** 折痕的几何键（忽略类型），用来判断“同一条折痕的山/谷变没变” */
+  function cpLineGeo(l) {
+    var a = l.a, b = l.b;
+    var lo = (a[0] < b[0] || (a[0] === b[0] && a[1] <= b[1])) ? a : b;
+    var hi = lo === a ? b : a;
+    return lo[0].toFixed(6) + ',' + lo[1].toFixed(6) + ',' + hi[0].toFixed(6) + ',' + hi[1].toFixed(6);
+  }
+  function cpSnapshot(lines) {
+    var map = {};
+    (lines || []).forEach(function (l) {
+      if (!l.stage || (l.type !== 'V' && l.type !== 'M')) return;
+      map[cpLineGeo(l)] = { type: l.type, stage: l.stage };
+    });
+    return map;
+  }
+
+  /** 按“第几步”汇总折痕类型：stage → {V: n, M: n}（一条折可能产生好几段折痕） */
+  function cpStageTypes(lines) {
+    var map = {};
+    (lines || []).forEach(function (l) {
+      if (!l.stage || (l.type !== 'V' && l.type !== 'M')) return;
+      var m = map[l.stage] || (map[l.stage] = { V: 0, M: 0 });
+      m[l.type]++;
+    });
+    return map;
+  }
+
+  /** 「写回分步折叠」：把折痕设计里【选中】的折痕的山/谷，按“第几步”写回分步折叠并自动重折 */
+  function writeBackToSteps() {
+    if (!S.stepKindLink || !S.stepView || !S.editor) { toast('先用「折痕 → 折痕设计」从分步折叠送一张折痕图过来', true); return; }
+    var ed = S.editor;
+    var sel = ed.getSelection ? ed.getSelection() : [];
+    if (!sel.length) { toast('先用「选择」工具点选（或框选）要写回的折痕', true); return; }
+    var lines = ed.doc.lines || [];
+    var picked = {};
+    sel.forEach(function (i) {
+      var l = lines[i];
+      if (!l || !l.stage || (l.type !== 'V' && l.type !== 'M')) return;
+      picked[l.stage] = l.type;          // 同一步只取一条
+    });
+    var stages = Object.keys(picked);
+    if (!stages.length) { toast('选中的线条没有对应的折叠步骤（可能是边界线或手画的线）', true); return; }
+    var v = S.stepView, steps = v.getSteps();
+    var todo = stages.filter(function (st) {
+      var step = steps[+st - 1];
+      if (!step || !step.op || (step.op.type !== 'fold' && step.op.type !== 'crease')) return false;
+      return step.op.kind !== (picked[st] === 'M' ? 'mountain' : 'valley');
+    });
+    if (!todo.length) { toast('选中的折痕和分步折叠里一致，不用改'); return; }
+    var msg = '把选中的折痕山/谷写回分步折叠？\n' +
+              todo.map(function (st) { return '第 ' + st + ' 步 → ' + (picked[st] === 'M' ? '山折' : '谷折'); }).join('\n');
+    if (!window.confirm(msg)) return;
+    var n = 0;
+    todo.forEach(function (st) {
+      var si = +st - 1;
+      if (v.setStepKind(si, picked[st] === 'M' ? 'mountain' : 'valley')) n++;
+    });
+    renderStepList();
+    if (S.syncStepEditor) S.syncStepEditor();
+    switchMode('step');
+    toast(n ? ('已写回 ' + n + ' 步并自动重折') : '没有需要改的步骤');
+  }
+
   /**
    * 把分步折叠的折痕图送进「折痕设计」，并建立联动：
    * 在设计里改某条折痕的 山/谷，会按 stage 找到对应那一步、改向并自动重折。
@@ -647,9 +711,12 @@
     if (!doc || !doc.lines || !doc.lines.length) { toast('还没有折痕，先折几下吧', true); return; }
     var name = ($('stepModelSel').selectedOptions[0] && $('stepModelSel').value ? $('stepModelSel').selectedOptions[0].textContent.replace(/（.*$/, '') : '分步折叠') + ' 折痕';
     doc.name = doc.name || name;
+    S.stepKindLink = true;
+    S.stepKindBase = cpStageTypes(doc.lines);     // 送进来时的山/谷基线：只把用户改过的写回去
     switchMode('design');
     loadDoc(doc, { foldPercent: 0.9 });
-    toast('折痕已送进折痕设计：点折痕改山/谷，分步折叠里那一步会自动改向并重折');
+    if ($('edWriteBack')) $('edWriteBack').hidden = false;
+    toast('已送进折痕设计：用「改类型」改山/谷，改完点右上「写回分步折叠」');
   }
 
   function stepTo3D() {
@@ -983,6 +1050,7 @@
     $('stPaper').addEventListener('change', function () { newPaper(this.value); });
     $('stTo3D').addEventListener('click', stepTo3D);
     $('stToDesign').addEventListener('click', stepToDesign);
+    if ($('edWriteBack')) $('edWriteBack').addEventListener('click', writeBackToSteps);
     $('st3DAngle').addEventListener('input', function () {
       if (!S.stepView) return;
       S.stepView.setDisplayAngle(+this.value);
